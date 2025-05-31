@@ -1,6 +1,6 @@
-use std::{fs, env};
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use std::{fs, env};
+
     let mut args = env::args().skip(1);
     let Some(first) = args.next() else {
         println!("the Ben shell (WIP)");
@@ -14,6 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let program = parsing::parse_program(&source);
+    eprintln!("{program:?}");
     evaluate::evaluate_program(program);
 
     Ok(())
@@ -102,6 +103,8 @@ mod parsing {
 
 mod evaluate {
     use super::ast::*;
+
+    use std::{fs, env};
     use std::borrow::Cow;
     use std::collections::HashMap;
 
@@ -127,7 +130,7 @@ mod evaluate {
         let mut start = 0;
         for (index, _matched) in argument.0.match_indices('$') {
             result += &argument.0[start..index];
-            let left = &argument.0[(start + 1)..];
+            let left = &argument.0[(index + 1)..];
             let reference = left.split_once(' ').map_or(left, |(left, _)| left);
             if let Some(argument) = ctx.get(&reference) {
                 result += Cow::Borrowed(argument.as_str());
@@ -136,7 +139,6 @@ mod evaluate {
             }
             start = index + 1 + reference.len();
         }
-
         result += &argument.0[start..];
         result
     }
