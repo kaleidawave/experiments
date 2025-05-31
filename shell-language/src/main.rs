@@ -1,0 +1,182 @@
+#[allow(unused)]
+use std::fs;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let file = fs::read_to_string("./private/example1.sh")?;
+
+    let program = parsing::parse_program(&file);
+    evaluate::evaluate_program(program);
+
+    Ok(())
+}
+
+mod ast {
+    #[derive(Debug)]
+    pub struct Program<'a>(pub Vec<Statement<'a>>);
+
+    #[derive(Debug)]
+    pub enum Statement<'a> {
+        Declaration { name: &'a str, value: Command<'a> },
+        Command(Command<'a>),
+    }
+
+    #[derive(Debug)]
+    pub struct Command<'a> {
+        pub name: &'a str,
+        pub arguments: Vec<Argument<'a>>,
+    }
+
+    /// Holds strings and literals
+    #[derive(Debug)]
+    pub struct Argument<'a>(pub &'a str);
+}
+
+mod parsing {
+    use super::ast::*;
+
+    pub fn parse_program<'a>(on: &'a str) -> Program<'a> {
+        let mut stmts: Vec<Statement> = Vec::new();
+
+        for line in on.lines() {
+            // comment or empty
+            if line.starts_with('#') || line.trim().is_empty() {
+                continue;
+            }
+
+            if let Some(rest) = line.strip_prefix("let ") {
+                let (name, rest) = rest.split_once(" = ").expect("let declaration needs ' = '");
+                stmts.push(Statement::Declaration {
+                    name,
+                    value: parse_command(rest),
+                });
+            } else {
+                stmts.push(Statement::Command(parse_command(line)));
+            }
+        }
+        Program(stmts)
+    }
+
+    fn parse_command<'a>(on: &'a str) -> Command<'a> {
+        let mut name = "";
+        let mut arguments = Vec::new();
+        let mut in_string = false;
+        let mut last = 0;
+        for (idx, chr) in on.char_indices() {
+            if in_string {
+                if let '"' | '\'' = chr {
+                    arguments.push(Argument(&on[last..idx]));
+                    last = idx;
+                }
+            } else if let ('"' | '\'', true) = (chr, idx == last + 1) {
+                // requires whitespace break currently
+                in_string = true;
+            } else if let ' ' = chr {
+                let part = &on[last..idx].trim();
+                if !part.is_empty() {
+                    if name.is_empty() {
+                        name = part;
+                    } else {
+                        arguments.push(Argument(part));
+                    }
+                    last = idx + chr.len_utf8();
+                }
+            }
+        }
+        let rest = &on[last..].trim();
+        if !rest.is_empty() {
+            arguments.push(Argument(rest));
+        }
+        Command { name, arguments }
+    }
+}
+
+mod evaluate {
+    use super::ast::*;
+    use std::borrow::Cow;
+    use std::collections::HashMap;
+
+    type Context<'a> = HashMap<&'a str, String>;
+
+    pub fn evaluate_program(program: Program<'_>) {
+        let mut ctx: Context<'_> = HashMap::new();
+        for statement in program.0 {
+            match statement {
+                Statement::Declaration { name, value } => {
+                    ctx.insert(name, evaluate_command(value, &ctx));
+                }
+                Statement::Command(command) => {
+                    let _ = evaluate_command(command, &ctx);
+                }
+            }
+        }
+
+        eprintln!("done")
+    }
+
+    /// interpolate variables
+    fn evaluate_argument<'a>(argument: &Argument<'a>, ctx: &'a Context<'a>) -> Cow<'a, str> {
+        let mut result = Cow::Borrowed("");
+        let mut start = 0;
+        for (index, _matched) in argument.0.match_indices('$') {
+            result += &argument.0[start..index];
+            let left = &argument.0[(start + 1)..];
+            let reference = left.split_once(' ').map_or(left, |(left, _)| left);
+            if let Some(argument) = ctx.get(&reference) {
+                result += Cow::Borrowed(argument.as_str());
+            } else {
+                eprintln!("Could not find reference {reference}")
+            }
+            start = index + 1 + reference.len();
+        }
+
+        result += &argument.0[start..];
+        result
+    }
+
+    pub fn evaluate_command(command: Command<'_>, ctx: &Context) -> String {
+        match command.name {
+            "literal" => {
+                // skip any others
+                let first_argument = command.arguments.iter().next().unwrap();
+                evaluate_argument(first_argument, ctx).into_owned()
+            }
+            "echo" => {
+                for (idx, argument) in command.arguments.iter().enumerate() {
+                    if idx > 0 {
+                        print!(" ");
+                    }
+                    print!("{}", evaluate_argument(argument, ctx));
+                }
+                println!();
+                String::new()
+            }
+            "run" => {
+                use std::io::{Read, pipe};
+                use std::process::Command;
+                let (mut reader, writer) = pipe().expect("could not create pipe");
+
+                let mut arguments = command.arguments.iter();
+                let first_argument = arguments.next().unwrap();
+                let command: &str = &evaluate_argument(first_argument, ctx);
+                let args = arguments
+                    .map(|arg| evaluate_argument(arg, ctx).into_owned())
+                    .collect::<Vec<String>>();
+
+                let _result = Command::new(command)
+                    .args(args)
+                    .stdout(writer.try_clone().expect("could not clone writer pipre"))
+                    .stderr(writer)
+                    .output()
+                    .expect("Failed to execute command");
+
+                let mut output = String::new();
+                reader.read_to_string(&mut output).expect("invalid UTF8");
+                output
+            }
+            name => {
+                eprintln!("unknown command '{name}'");
+                String::new()
+            }
+        }
+    }
+}
