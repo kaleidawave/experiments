@@ -1,0 +1,19 @@
+name: Build assets for projects
+
+on:
+  push
+
+jobs:
+  publish-asserts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build binary
+        working-directory: shell-language
+        run: cargo build
+      - name: Publish binary
+        working-directory: shell-language
+        run: gh release upload assets ./target/debug/shell-language#shell-language --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
