@@ -1,0 +1,16 @@
+[package]
+name = "specification-tool"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "spectra_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "spectra"
+path = "src/main.rs"
+
+[dependencies]
+simple-markdown-parser = { git = "https://github.com/kaleidawave/simple-markdown-parser", version = "0.0.7", branch = "improvements" }
