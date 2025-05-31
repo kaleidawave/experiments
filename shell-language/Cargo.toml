@@ -2,6 +2,6 @@
 name = "shell-language"
 version = "0.1.0"
 edition = "2024"
-pubish = false
+publish = false
 
 [dependencies]

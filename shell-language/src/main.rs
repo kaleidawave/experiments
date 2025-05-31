@@ -1,10 +1,19 @@
-#[allow(unused)]
-use std::fs;
+use std::{fs, env};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let file = fs::read_to_string("./private/example1.sh")?;
+    let mut args = env::args().skip(1);
+    let Some(first) = args.next() else {
+        println!("the Ben shell (WIP)");
+        return Ok(());
+    };
 
-    let program = parsing::parse_program(&file);
+    let source: String = if let "--evaluate" | "-e" = first.as_str() {
+        args.next().unwrap_or_default()
+    } else {
+        fs::read_to_string(first)?
+    };
+
+    let program = parsing::parse_program(&source);
     evaluate::evaluate_program(program);
 
     Ok(())
@@ -65,11 +74,12 @@ mod parsing {
             if in_string {
                 if let '"' | '\'' = chr {
                     arguments.push(Argument(&on[last..idx]));
-                    last = idx;
+                    last = idx + 1;
+                    in_string = false;
                 }
-            } else if let ('"' | '\'', true) = (chr, idx == last + 1) {
-                // requires whitespace break currently
+            } else if let '"' | '\'' = chr {
                 in_string = true;
+                last = idx + 1;
             } else if let ' ' = chr {
                 let part = &on[last..idx].trim();
                 if !part.is_empty() {
@@ -109,8 +119,6 @@ mod evaluate {
                 }
             }
         }
-
-        eprintln!("done")
     }
 
     /// interpolate variables
