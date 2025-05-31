@@ -183,6 +183,75 @@ mod evaluate {
                 reader.read_to_string(&mut output).expect("invalid UTF8");
                 output
             }
+            // Environment variables
+            "env" => {
+                // eprintln!("{:?}", env::vars());
+                let mut arguments = command.arguments.iter();
+                let name: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                if let Some(value) = env::vars().find_map(|(n, v)| (n == name).then_some(v.into())) {
+                    value
+                } else {
+                    eprintln!("Could not find environment variable {name}");
+                    Default::default()
+                }
+            }
+            // File system
+            "write" => {
+                let mut arguments = command.arguments.iter();
+                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let output: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                fs::write(path, output).unwrap();
+                String::new()
+            }
+            "read" => {
+                let mut arguments = command.arguments.iter();
+                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                if let Ok(content) = fs::read_to_string(path) {
+                    content
+                } else {
+                    eprintln!("Could not read {path}");
+                    Default::default()
+                }
+            }
+            // String commands
+            "repeat" => {
+                let mut arguments = command.arguments.iter();
+                let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let repeat: usize = evaluate_argument(arguments.next().unwrap(), ctx).parse().expect("invalid repeater");
+                item.repeat(repeat)
+            }
+            str_slice_cmd @ ("before" | "after" | "rbefore" | "rafter") => {
+                let mut arguments = command.arguments.iter();
+                let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let splitter: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+
+                let item = if str_slice_cmd.starts_with('r') {
+                    item.rsplit_once(splitter)
+                } else {
+                    item.split_once(splitter)
+                };
+                if let Some((before, after)) = item {
+                    if str_slice_cmd.ends_with("before") {
+                        before.to_owned()
+                    } else {
+                        after.to_owned()
+                    }
+                } else {
+                    String::new()
+                }
+            }
+            line_cmd @ ("last_line" | "first_line") => {
+                let mut arguments = command.arguments.iter();
+                let first_argument = arguments.next().unwrap();
+                let item: &str = &evaluate_argument(first_argument, ctx);
+
+                let mut lines = item.lines();
+                if line_cmd.starts_with("first") {
+                    lines.next().unwrap_or_default().to_owned()
+                } else {
+                    lines.next_back().unwrap_or_default().to_owned()
+                }
+            }
             name => {
                 eprintln!("unknown command '{name}'");
                 String::new()
