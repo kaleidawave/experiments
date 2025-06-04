@@ -1,0 +1,12 @@
+[package]
+name = "slides-tool"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+simple-markdown-parser = { git = "https://github.com/kaleidawave/simple-markdown-parser", version = "0.0.7", branch = "improvements" }
+
+[[bin]]
+name = "slides"
+path = "main.rs"

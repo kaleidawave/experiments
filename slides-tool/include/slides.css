@@ -1,0 +1,163 @@
+body {
+    display: grid;
+    grid-template-rows: 1fr 600px 1fr;
+    grid-template-columns: 1fr 800px 1fr;
+    font-family: "Shippori Antique", "Archivo", monospace;
+    background-color: rgb(248, 249, 236);
+    color: rgb(7, 7, 7);
+}
+
+h1,
+h2,
+h3,
+h4 {
+    font-family: "Newsreader", monospace;
+    font-size: 42px;
+    letter-spacing: 1px;
+    font-weight: 300;
+    text-align: center;
+    margin: 48px 0;
+}
+
+section.blank {
+    font-family: "BenBlocks";
+    letter-spacing: -1px;
+    word-spacing: 2px;
+    color: rgb(34, 34, 34);
+}
+
+h5.location {
+    margin: 0 0 20px;
+    font-weight: 100;
+    text-transform: uppercase;
+}
+
+strong {
+    letter-spacing: 0.2px;
+    word-spacing: 2px;
+    color: #2d2d2d;
+}
+
+a {
+    color: rgb(53, 38, 225);
+    text-decoration: none;
+}
+
+pre,
+code {
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
+}
+
+p,
+ul,
+ol,
+blockquote {
+    line-height: 2rem;
+}
+
+img {
+    width: 100%;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+button {
+    font-family: inherit;
+    background: none;
+    border: none;
+    outline: none;
+}
+
+th,
+td {
+    border: 2px solid currentColor;
+    padding: 4px 24px;
+}
+
+thead {
+    text-align: left;
+}
+
+blockquote[data-quote-kind="warning"] {
+    background: #fafa48;
+    color: black;
+}
+
+blockquote[data-quote-kind="info"] {
+    background: #6472f0;
+}
+
+blockquote[data-quote-kind="summary"] {
+    background: #64f0a5;
+    color: black;
+}
+
+.frontmatter {
+    display: none;
+}
+
+#slides {
+    grid-column: 2;
+    grid-row: 2;
+}
+
+#slides[data-paginated] {
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
+#controls {
+    grid-column: 2;
+    grid-row: 3;
+    margin-left: auto;
+}
+
+div.progress {
+    background-color: black;
+    height: 6px;
+    align-self: center;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+
+blockquote {
+    padding: 0 16px;
+    margin: 0;
+    border-left: 2px solid #473e48;
+}
+
+pre {
+    tab-size: 4;
+}
+
+#slides[data-paginated] section {
+    display: none;
+}
+
+#slides[data-paginated] section.current {
+    display: unset;
+}
+
+ul.row {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 0;
+}
+
+ul.row>li {
+    margin-left: 32px;
+    flex-shrink: 0;
+}
+
+/* #slides[data-paginated] section {
+    filter: blur(4px);
+    transition: .2s opacity, .4s filter;
+    visibility: hidden;
+}
+
+ */
