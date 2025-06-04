@@ -1,0 +1,10 @@
+[package]
+name = "json-builder-macro"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+
+[lib]
+path = "./lib.rs"
