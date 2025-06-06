@@ -1,5 +1,5 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use std::{fs, env};
+    use std::{env, fs};
 
     let mut args = env::args().skip(1);
     let Some(first) = args.next() else {
@@ -13,8 +13,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         fs::read_to_string(first)?
     };
 
+    let rest: Vec<_> = args.collect();
+
+    let debug_program: bool = rest.iter().any(|flag| flag == "--debug-program");
+
     let program = parsing::parse_program(&source);
-    eprintln!("{program:?}");
+
+    if debug_program {
+        eprintln!("{program:#?}");
+    }
+
     evaluate::evaluate_program(program);
 
     Ok(())
@@ -26,7 +34,14 @@ mod ast {
 
     #[derive(Debug)]
     pub enum Statement<'a> {
-        Declaration { name: &'a str, value: Command<'a> },
+        Declaration {
+            name: &'a str,
+            value: Command<'a>,
+        },
+        For {
+            iterator: Command<'a>,
+            statements: Vec<Statement<'a>>,
+        },
         Command(Command<'a>),
     }
 
@@ -47,23 +62,49 @@ mod parsing {
     pub fn parse_program<'a>(on: &'a str) -> Program<'a> {
         let mut stmts: Vec<Statement> = Vec::new();
 
-        for line in on.lines() {
-            // comment or empty
-            if line.starts_with('#') || line.trim().is_empty() {
-                continue;
-            }
-
-            if let Some(rest) = line.strip_prefix("let ") {
-                let (name, rest) = rest.split_once(" = ").expect("let declaration needs ' = '");
-                stmts.push(Statement::Declaration {
-                    name,
-                    value: parse_command(rest),
-                });
-            } else {
-                stmts.push(Statement::Command(parse_command(line)));
+        let mut lines = on.lines();
+        while let Some(line) = lines.next() {
+            if let Some(stmt) = parse_statement(line, &mut lines) {
+                stmts.push(stmt);
             }
         }
         Program(stmts)
+    }
+
+    fn parse_statement<'a>(
+        line: &'a str,
+        lines: &mut dyn Iterator<Item = &'a str>,
+    ) -> Option<Statement<'a>> {
+        // comment or empty
+        if line.starts_with('#') || line.trim().is_empty() {
+            None
+        } else if let Some(rest) = line.strip_prefix("let ") {
+            let (name, rest) = rest.split_once(" = ").expect("let declaration needs ' = '");
+            Some(Statement::Declaration {
+                name,
+                value: parse_command(rest),
+            })
+        } else if let Some(inner) = line
+            .strip_prefix("for ")
+            .and_then(|line| line.strip_suffix(" each"))
+        {
+            let iterator = parse_command(inner);
+            let mut rest = lines
+                .take_while(|line| line.starts_with("\t"))
+                .map(|line| &line[1..]);
+            let mut statements = Vec::new();
+            while let Some(line) = rest.next() {
+                if let Some(stmt) = parse_statement(line, &mut rest) {
+                    statements.push(stmt);
+                }
+            }
+            Some(Statement::For {
+                iterator,
+                statements,
+            })
+        } else {
+            Some(Statement::Command(parse_command(line)))
+        }
     }
 
     fn parse_command<'a>(on: &'a str) -> Command<'a> {
@@ -95,7 +136,11 @@ mod parsing {
         }
         let rest = &on[last..].trim();
         if !rest.is_empty() {
-            arguments.push(Argument(rest));
+            if name.is_empty() {
+                name = rest;
+            } else {
+                arguments.push(Argument(rest));
+            }
         }
         Command { name, arguments }
     }
@@ -104,21 +149,49 @@ mod parsing {
 mod evaluate {
     use super::ast::*;
 
-    use std::{fs, env};
     use std::borrow::Cow;
     use std::collections::HashMap;
+    use std::fs;
 
     type Context<'a> = HashMap<&'a str, String>;
 
     pub fn evaluate_program(program: Program<'_>) {
         let mut ctx: Context<'_> = HashMap::new();
-        for statement in program.0 {
-            match statement {
-                Statement::Declaration { name, value } => {
-                    ctx.insert(name, evaluate_command(value, &ctx));
-                }
-                Statement::Command(command) => {
-                    let _ = evaluate_command(command, &ctx);
+        for statement in &program.0 {
+            evaluate_statement(statement, &mut ctx);
+        }
+    }
+
+    fn evaluate_statement<'a>(statement: &Statement<'a>, ctx: &mut Context<'a>) {
+        match statement {
+            Statement::Declaration { name, value } => {
+                let value = evaluate_command(&value, ctx);
+                ctx.insert(name, value);
+            }
+            Statement::Command(command) => {
+                let _ = evaluate_command(&command, ctx);
+            }
+            Statement::For {
+                iterator,
+                statements,
+            } => {
+                let result = evaluate_command(iterator, ctx);
+
+                for part in result.split("\n") {
+                    let part = part.strip_suffix('\r').unwrap_or(part);
+                    match iterator.name {
+                        "tags" => {
+                            ctx.insert("tag", part.to_owned());
+                        }
+                        "files" => {
+                            ctx.insert("file", part.to_owned());
+                        }
+                        _ => {}
+                    };
+                    ctx.insert("iter", part.to_owned());
+                    for statement in statements.iter() {
+                        evaluate_statement(statement, ctx);
+                    }
                 }
             }
         }
@@ -131,9 +204,15 @@ mod evaluate {
         for (index, _matched) in argument.0.match_indices('$') {
             result += &argument.0[start..index];
             let left = &argument.0[(index + 1)..];
-            let reference = left.split_once(' ').map_or(left, |(left, _)| left);
-            if let Some(argument) = ctx.get(&reference) {
+            let reference = left
+                .split_once(|chr: char| !chr.is_alphanumeric())
+                .map_or(left, |(left, _)| left);
+            if let "ctx" = reference {
+                result += Cow::Owned(format!("{:?}", ctx));
+            } else if let Some(argument) = ctx.get(&reference) {
                 result += Cow::Borrowed(argument.as_str());
+            } else if let Some(env) = crate::utilities::get_environment_variable(reference) {
+                result += Cow::Owned(env);
             } else {
                 eprintln!("Could not find reference {reference}")
             }
@@ -143,21 +222,38 @@ mod evaluate {
         result
     }
 
-    pub fn evaluate_command(command: Command<'_>, ctx: &Context) -> String {
+    pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> String {
         match command.name {
             "literal" => {
                 // skip any others
                 let first_argument = command.arguments.iter().next().unwrap();
                 evaluate_argument(first_argument, ctx).into_owned()
             }
-            "echo" => {
+            "echo" | "echo_stdout" => {
+                let mut some = false;
+                for (idx, argument) in command.arguments.iter().enumerate() {
+                    let result = evaluate_argument(argument, ctx);
+                    if !result.is_empty() {
+                        some = true;
+                        if idx > 0 {
+                            print!(" ");
+                        }
+                        print!("{result}");
+                    }
+                }
+                if command.arguments.is_empty() || some {
+                    println!();
+                }
+                String::new()
+            }
+            "echo_stderr" => {
                 for (idx, argument) in command.arguments.iter().enumerate() {
                     if idx > 0 {
-                        print!(" ");
+                        eprint!(" ");
                     }
-                    print!("{}", evaluate_argument(argument, ctx));
+                    eprint!("{}", evaluate_argument(argument, ctx));
                 }
-                println!();
+                eprintln!();
                 String::new()
             }
             "run" => {
@@ -170,11 +266,12 @@ mod evaluate {
                 let command: &str = &evaluate_argument(first_argument, ctx);
                 let args = arguments
                     .map(|arg| evaluate_argument(arg, ctx).into_owned())
+                    .filter(|arg| !arg.is_empty())
                     .collect::<Vec<String>>();
 
                 let _result = Command::new(command)
                     .args(args)
-                    .stdout(writer.try_clone().expect("could not clone writer pipre"))
+                    .stdout(writer.try_clone().expect("could not clone writer pipe"))
                     .stderr(writer)
                     .output()
                     .expect("Failed to execute command");
@@ -185,10 +282,9 @@ mod evaluate {
             }
             // Environment variables
             "env" => {
-                // eprintln!("{:?}", env::vars());
                 let mut arguments = command.arguments.iter();
                 let name: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                if let Some(value) = env::vars().find_map(|(n, v)| (n == name).then_some(v.into())) {
+                if let Some(value) = crate::utilities::get_environment_variable(name) {
                     value
                 } else {
                     eprintln!("Could not find environment variable {name}");
@@ -213,12 +309,80 @@ mod evaluate {
                     Default::default()
                 }
             }
+            "mv" | "move" => {
+                use std::path::Path;
+
+                let mut arguments = command.arguments.iter();
+                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let from: &Path = Path::new(path);
+                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let to: &Path = Path::new(path);
+                // TODO can rename (https://doc.rust-lang.org/std/fs/fn.rename.html) sometimes here
+                if from.is_dir() {
+                    todo!("move directory");
+                } else if from.is_file() {
+                    if let Some(parent) = to.parent() {
+                        fs::create_dir_all(parent).unwrap();
+                    }
+                    let content = fs::read(from).unwrap();
+                    fs::write(to, content).unwrap();
+                    fs::remove_file(from).unwrap();
+                } else {
+                    eprintln!("unknown path item to remove")
+                }
+                Default::default()
+            }
+            "cp" | "copy" => {
+                use std::path::Path;
+
+                let mut arguments = command.arguments.iter();
+                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let from: &Path = Path::new(path);
+                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let to: &Path = Path::new(path);
+                if from.is_dir() {
+                    todo!("copy directory");
+                } else if from.is_file() {
+                    if let Some(parent) = to.parent() {
+                        fs::create_dir_all(parent).unwrap();
+                    }
+                    let content = fs::read(from).unwrap();
+                    fs::write(to, content).unwrap();
+                } else {
+                    eprintln!("unknown path item to remove")
+                }
+                Default::default()
+            }
+            "rm" | "remove" => {
+                use std::path::Path;
+
+                let mut arguments = command.arguments.iter();
+                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let path: &Path = Path::new(path);
+                if path.is_dir() {
+                    fs::remove_dir(path).unwrap();
+                } else if path.is_file() {
+                    fs::remove_file(path).unwrap();
+                } else {
+                    eprintln!("unknown path item to remove")
+                }
+                Default::default()
+            }
             // String commands
             "repeat" => {
                 let mut arguments = command.arguments.iter();
                 let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                let repeat: usize = evaluate_argument(arguments.next().unwrap(), ctx).parse().expect("invalid repeater");
+                let repeat: usize = evaluate_argument(arguments.next().unwrap(), ctx)
+                    .parse()
+                    .expect("invalid repeater");
                 item.repeat(repeat)
+            }
+            "replace" => {
+                let mut arguments = command.arguments.iter();
+                let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let from: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let to: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                item.replace(from, to)
             }
             str_slice_cmd @ ("before" | "after" | "rbefore" | "rafter") => {
                 let mut arguments = command.arguments.iter();
@@ -252,10 +416,97 @@ mod evaluate {
                     lines.next_back().unwrap_or_default().to_owned()
                 }
             }
+            // Control flow
+            "if_equal" => {
+                let mut arguments = command.arguments.iter();
+                let first_argument = arguments.next().unwrap();
+                let second_argument = arguments.next().unwrap();
+                let third_argument = arguments.next().unwrap();
+                if evaluate_argument(first_argument, ctx) == evaluate_argument(second_argument, ctx)
+                {
+                    evaluate_argument(third_argument, ctx).into_owned()
+                } else {
+                    let fourth_argument = arguments.next();
+                    if let Some(fourth_argument) = fourth_argument {
+                        evaluate_argument(fourth_argument, ctx).into_owned()
+                    } else {
+                        String::new()
+                    }
+                }
+            }
+            // Git tags
+            "tags" => {
+                use std::process::Command;
+                let mut c = Command::new("git");
+                let mut cmd = c.arg("tag").arg("--list");
+
+                if let Some(arg) = command.arguments.first() {
+                    cmd = cmd.arg(&evaluate_argument(arg, ctx).into_owned());
+                };
+
+                let result = cmd.output().expect("`git tag --list` failed");
+                String::from_utf8(result.stdout).expect("invalid UTF8")
+            }
+            "files" => {
+                let pattern = if let Some(arg) = command.arguments.first() {
+                    evaluate_argument(arg, ctx)
+                } else {
+                    Cow::Borrowed("")
+                };
+                match glob::glob(&pattern) {
+                    Ok(paths) => {
+                        let mut output = String::new();
+                        for path in paths {
+                            if !output.is_empty() {
+                                output.push('\n')
+                            }
+                            output
+                                .push_str(&path.unwrap().display().to_string().replace("\\", "/"));
+                        }
+                        output
+                    }
+                    Err(err) => {
+                        eprintln!("{err:?}");
+                        String::new()
+                    }
+                }
+            }
+            // TODO WIP. "known programs"
+            command_name @ ("cargo" | "git" | "gh" | "hyperfine" | "jq") => {
+                use std::io::{Read, pipe};
+                use std::process::Command;
+
+                let (mut reader, writer) = pipe().expect("could not create pipe");
+
+                let arguments = command.arguments.iter();
+                let args = arguments
+                    .map(|arg| evaluate_argument(arg, ctx).into_owned())
+                    .filter(|arg| !arg.is_empty())
+                    .collect::<Vec<String>>();
+
+                let _result = Command::new(command_name)
+                    .args(args)
+                    .stdout(writer.try_clone().expect("could not clone writer pipe"))
+                    .stderr(writer)
+                    .output()
+                    .expect("Failed to execute command");
+
+                let mut output = String::new();
+                reader.read_to_string(&mut output).expect("invalid UTF8");
+                print!("{output}");
+                output
+            }
+            "noop" => String::new(),
             name => {
                 eprintln!("unknown command '{name}'");
                 String::new()
             }
         }
+    }
+}
+
+mod utilities {
+    pub fn get_environment_variable(name: &str) -> Option<String> {
+        std::env::vars().find_map(|(n, v)| (n == name).then_some(v))
     }
 }
