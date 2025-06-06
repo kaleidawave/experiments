@@ -21,9 +21,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if debug_program {
         eprintln!("{program:#?}");
+    } else {
+        evaluate::evaluate_program(program);
     }
-
-    evaluate::evaluate_program(program);
 
     Ok(())
 }
@@ -89,9 +89,17 @@ mod parsing {
             .and_then(|line| line.strip_suffix(" each"))
         {
             let iterator = parse_command(inner);
-            let mut rest = lines
-                .take_while(|line| line.starts_with("\t"))
-                .map(|line| &line[1..]);
+            let mut rest = lines.map_while(|line| {
+                if let line @ Some(_) = line.strip_prefix("\t") {
+                    line
+                } else if let line @ Some(_) = line.strip_prefix("  ") {
+                    line
+                } else if line.trim().is_empty() {
+                    Some(line)
+                } else {
+                    None
+                }
+            });
             let mut statements = Vec::new();
             while let Some(line) = rest.next() {
                 if let Some(stmt) = parse_statement(line, &mut rest) {
@@ -165,17 +173,26 @@ mod evaluate {
     fn evaluate_statement<'a>(statement: &Statement<'a>, ctx: &mut Context<'a>) {
         match statement {
             Statement::Declaration { name, value } => {
-                let value = evaluate_command(&value, ctx);
+                let (value, exit_code) = evaluate_command(value, ctx);
                 ctx.insert(name, value);
+                if let Some(exit_code) = exit_code {
+                    ctx.insert("exit_code", exit_code.to_string());
+                }
             }
             Statement::Command(command) => {
-                let _ = evaluate_command(&command, ctx);
+                let (_, exit_code) = evaluate_command(command, ctx);
+                if let Some(exit_code) = exit_code {
+                    ctx.insert("exit_code", exit_code.to_string());
+                }
             }
             Statement::For {
                 iterator,
                 statements,
             } => {
-                let result = evaluate_command(iterator, ctx);
+                let (result, exit_code) = evaluate_command(iterator, ctx);
+                if let Some(exit_code) = exit_code {
+                    ctx.insert("exit_code", exit_code.to_string());
+                }
 
                 for part in result.split("\n") {
                     let part = part.strip_suffix('\r').unwrap_or(part);
@@ -201,33 +218,54 @@ mod evaluate {
     fn evaluate_argument<'a>(argument: &Argument<'a>, ctx: &'a Context<'a>) -> Cow<'a, str> {
         let mut result = Cow::Borrowed("");
         let mut start = 0;
-        for (index, _matched) in argument.0.match_indices('$') {
+        for (index, matched) in argument.0.match_indices(['$', '\\']) {
             result += &argument.0[start..index];
-            let left = &argument.0[(index + 1)..];
-            let reference = left
-                .split_once(|chr: char| !chr.is_alphanumeric())
-                .map_or(left, |(left, _)| left);
-            if let "ctx" = reference {
-                result += Cow::Owned(format!("{:?}", ctx));
-            } else if let Some(argument) = ctx.get(&reference) {
-                result += Cow::Borrowed(argument.as_str());
-            } else if let Some(env) = crate::utilities::get_environment_variable(reference) {
-                result += Cow::Owned(env);
+            if let "$" = matched {
+                let rest = &argument.0[(index + 1)..];
+                let reference = rest
+                    .split_once(|chr: char| !chr.is_alphanumeric())
+                    .map_or(rest, |(rest, _)| rest);
+                if let "ctx" = reference {
+                    result += Cow::Owned(format!("{:?}", ctx));
+                } else if let Some(argument) = ctx.get(&reference) {
+                    result += Cow::Borrowed(argument.as_str());
+                } else if let Some(env) = crate::utilities::get_environment_variable(reference) {
+                    result += Cow::Owned(env);
+                } else {
+                    eprintln!("Could not find reference {reference}")
+                }
+                start = index + 1 + reference.len();
+            } else if let "\\" = matched {
+                match argument.0[(index + 1)..].chars().next() {
+                    Some('n') => {
+                        result += Cow::Borrowed("\n");
+                    }
+                    Some('t') => {
+                        result += Cow::Borrowed("\t");
+                    }
+                    Some('r') => {
+                        result += Cow::Borrowed("\r");
+                    }
+                    Some('\"') => {}
+                    character => {
+                        eprintln!("unknown escape {character:?}");
+                    }
+                }
+                start = index + 2;
             } else {
-                eprintln!("Could not find reference {reference}")
+                unreachable!("matched '{matched}'");
             }
-            start = index + 1 + reference.len();
         }
         result += &argument.0[start..];
         result
     }
 
-    pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> String {
+    pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option<i32>) {
         match command.name {
             "literal" => {
                 // skip any others
-                let first_argument = command.arguments.iter().next().unwrap();
-                evaluate_argument(first_argument, ctx).into_owned()
+                let first_argument = command.arguments.first().unwrap();
+                (evaluate_argument(first_argument, ctx).into_owned(), None)
             }
             "echo" | "echo_stdout" => {
                 let mut some = false;
@@ -244,7 +282,7 @@ mod evaluate {
                 if command.arguments.is_empty() || some {
                     println!();
                 }
-                String::new()
+                (String::new(), None)
             }
             "echo_stderr" => {
                 for (idx, argument) in command.arguments.iter().enumerate() {
@@ -254,7 +292,7 @@ mod evaluate {
                     eprint!("{}", evaluate_argument(argument, ctx));
                 }
                 eprintln!();
-                String::new()
+                (String::new(), None)
             }
             "run" => {
                 use std::io::{Read, pipe};
@@ -269,7 +307,7 @@ mod evaluate {
                     .filter(|arg| !arg.is_empty())
                     .collect::<Vec<String>>();
 
-                let _result = Command::new(command)
+                let result = Command::new(command)
                     .args(args)
                     .stdout(writer.try_clone().expect("could not clone writer pipe"))
                     .stderr(writer)
@@ -278,17 +316,17 @@ mod evaluate {
 
                 let mut output = String::new();
                 reader.read_to_string(&mut output).expect("invalid UTF8");
-                output
+                (output, result.status.code())
             }
             // Environment variables
             "env" => {
                 let mut arguments = command.arguments.iter();
                 let name: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 if let Some(value) = crate::utilities::get_environment_variable(name) {
-                    value
+                    (value, Some(0))
                 } else {
                     eprintln!("Could not find environment variable {name}");
-                    Default::default()
+                    (Default::default(), Some(1))
                 }
             }
             // File system
@@ -296,17 +334,43 @@ mod evaluate {
                 let mut arguments = command.arguments.iter();
                 let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 let output: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                fs::write(path, output).unwrap();
-                String::new()
+                if fs::write(path, output).is_ok() {
+                    (Default::default(), Some(0))
+                } else {
+                    eprintln!("Could not write to {path}");
+                    (Default::default(), Some(1))
+                }
             }
             "read" => {
                 let mut arguments = command.arguments.iter();
                 let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 if let Ok(content) = fs::read_to_string(path) {
-                    content
+                    (content, Some(0))
                 } else {
                     eprintln!("Could not read {path}");
-                    Default::default()
+                    (Default::default(), Some(1))
+                }
+            }
+            "file_size" => {
+                let mut arguments = command.arguments.iter();
+                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                if let Ok(content) = fs::read_to_string(path) {
+                    (content.len().to_string(), Some(0))
+                } else {
+                    eprintln!("Could not read {path}");
+                    (Default::default(), Some(1))
+                }
+            }
+            "lines" => {
+                let mut arguments = command.arguments.iter();
+                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                if let Ok(content) = fs::read_to_string(path) {
+                    let content = content.strip_prefix('\n').unwrap_or(&content);
+                    let lines = content.chars().filter(|chr| *chr == '\n').count();
+                    (lines.to_string(), Some(0))
+                } else {
+                    eprintln!("Could not read {path}");
+                    (Default::default(), Some(1))
                 }
             }
             "mv" | "move" => {
@@ -327,10 +391,11 @@ mod evaluate {
                     let content = fs::read(from).unwrap();
                     fs::write(to, content).unwrap();
                     fs::remove_file(from).unwrap();
+                    (Default::default(), Some(0))
                 } else {
-                    eprintln!("unknown path item to remove")
+                    eprintln!("unknown path item to remove");
+                    (Default::default(), Some(1))
                 }
-                Default::default()
             }
             "cp" | "copy" => {
                 use std::path::Path;
@@ -348,10 +413,11 @@ mod evaluate {
                     }
                     let content = fs::read(from).unwrap();
                     fs::write(to, content).unwrap();
+                    (Default::default(), Some(0))
                 } else {
-                    eprintln!("unknown path item to remove")
+                    eprintln!("unknown path item to remove");
+                    (Default::default(), Some(1))
                 }
-                Default::default()
             }
             "rm" | "remove" => {
                 use std::path::Path;
@@ -361,12 +427,14 @@ mod evaluate {
                 let path: &Path = Path::new(path);
                 if path.is_dir() {
                     fs::remove_dir(path).unwrap();
+                    (Default::default(), Some(0))
                 } else if path.is_file() {
                     fs::remove_file(path).unwrap();
+                    (Default::default(), Some(0))
                 } else {
-                    eprintln!("unknown path item to remove")
+                    eprintln!("unknown path item to remove");
+                    (Default::default(), Some(1))
                 }
-                Default::default()
             }
             // String commands
             "repeat" => {
@@ -375,14 +443,44 @@ mod evaluate {
                 let repeat: usize = evaluate_argument(arguments.next().unwrap(), ctx)
                     .parse()
                     .expect("invalid repeater");
-                item.repeat(repeat)
+                (item.repeat(repeat), None)
             }
             "replace" => {
                 let mut arguments = command.arguments.iter();
                 let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 let from: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 let to: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                item.replace(from, to)
+                (item.replace(from, to), None)
+            }
+            "concatenate" => {
+                use std::fmt::Write;
+                let mut s = String::new();
+                for argument in command.arguments.iter() {
+                    if !s.is_empty() {
+                        writeln!(&mut s).unwrap();
+                    }
+                    let argument = evaluate_argument(argument, ctx);
+                    if !argument.is_empty() {
+                        write!(&mut s, "{argument}").unwrap();
+                    }
+                }
+                (s, None)
+            }
+            "concatenate_separator" => {
+                use std::fmt::Write;
+                let mut s = String::new();
+                let mut arguments = command.arguments.iter();
+                let separator: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                for argument in arguments {
+                    if !s.is_empty() {
+                        write!(&mut s, "{separator}").unwrap();
+                    }
+                    let argument = evaluate_argument(argument, ctx);
+                    if !argument.is_empty() {
+                        write!(&mut s, "{argument}").unwrap();
+                    }
+                }
+                (s, None)
             }
             str_slice_cmd @ ("before" | "after" | "rbefore" | "rafter") => {
                 let mut arguments = command.arguments.iter();
@@ -394,7 +492,7 @@ mod evaluate {
                 } else {
                     item.split_once(splitter)
                 };
-                if let Some((before, after)) = item {
+                let out = if let Some((before, after)) = item {
                     if str_slice_cmd.ends_with("before") {
                         before.to_owned()
                     } else {
@@ -402,7 +500,8 @@ mod evaluate {
                     }
                 } else {
                     String::new()
-                }
+                };
+                (out, None)
             }
             line_cmd @ ("last_line" | "first_line") => {
                 let mut arguments = command.arguments.iter();
@@ -410,11 +509,12 @@ mod evaluate {
                 let item: &str = &evaluate_argument(first_argument, ctx);
 
                 let mut lines = item.lines();
-                if line_cmd.starts_with("first") {
-                    lines.next().unwrap_or_default().to_owned()
+                let out = if line_cmd.starts_with("first") {
+                    lines.next()
                 } else {
-                    lines.next_back().unwrap_or_default().to_owned()
-                }
+                    lines.next_back()
+                };
+                (out.unwrap_or_default().to_owned(), None)
             }
             // Control flow
             "if_equal" => {
@@ -422,17 +522,19 @@ mod evaluate {
                 let first_argument = arguments.next().unwrap();
                 let second_argument = arguments.next().unwrap();
                 let third_argument = arguments.next().unwrap();
-                if evaluate_argument(first_argument, ctx) == evaluate_argument(second_argument, ctx)
-                {
-                    evaluate_argument(third_argument, ctx).into_owned()
+                let equal = evaluate_argument(first_argument, ctx)
+                    == evaluate_argument(second_argument, ctx);
+                let out = if equal {
+                    evaluate_argument(third_argument, ctx)
                 } else {
                     let fourth_argument = arguments.next();
                     if let Some(fourth_argument) = fourth_argument {
-                        evaluate_argument(fourth_argument, ctx).into_owned()
+                        evaluate_argument(fourth_argument, ctx)
                     } else {
-                        String::new()
+                        Cow::Borrowed("")
                     }
-                }
+                };
+                (out.into_owned(), None)
             }
             // Git tags
             "tags" => {
@@ -441,11 +543,12 @@ mod evaluate {
                 let mut cmd = c.arg("tag").arg("--list");
 
                 if let Some(arg) = command.arguments.first() {
-                    cmd = cmd.arg(&evaluate_argument(arg, ctx).into_owned());
+                    cmd = cmd.arg(evaluate_argument(arg, ctx).into_owned());
                 };
 
                 let result = cmd.output().expect("`git tag --list` failed");
-                String::from_utf8(result.stdout).expect("invalid UTF8")
+                let tags = String::from_utf8(result.stdout).expect("invalid UTF8");
+                (tags, result.status.code())
             }
             "files" => {
                 let pattern = if let Some(arg) = command.arguments.first() {
@@ -463,11 +566,11 @@ mod evaluate {
                             output
                                 .push_str(&path.unwrap().display().to_string().replace("\\", "/"));
                         }
-                        output
+                        (output, Some(0))
                     }
                     Err(err) => {
-                        eprintln!("{err:?}");
-                        String::new()
+                        eprintln!("Error reading files glob {err:?}");
+                        (Default::default(), Some(1))
                     }
                 }
             }
@@ -484,7 +587,7 @@ mod evaluate {
                     .filter(|arg| !arg.is_empty())
                     .collect::<Vec<String>>();
 
-                let _result = Command::new(command_name)
+                let result = Command::new(command_name)
                     .args(args)
                     .stdout(writer.try_clone().expect("could not clone writer pipe"))
                     .stderr(writer)
@@ -494,12 +597,12 @@ mod evaluate {
                 let mut output = String::new();
                 reader.read_to_string(&mut output).expect("invalid UTF8");
                 print!("{output}");
-                output
+                (output, result.status.code())
             }
-            "noop" => String::new(),
+            "noop" => (String::new(), None),
             name => {
                 eprintln!("unknown command '{name}'");
-                String::new()
+                (Default::default(), Some(1))
             }
         }
     }
