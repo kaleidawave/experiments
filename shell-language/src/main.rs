@@ -5,7 +5,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let Some(first) = args.next() else {
         let run_id = option_env!("GITHUB_RUN_ID");
         let date = option_env!("GITHUB_RUN_DATE");
-        let after = run_id.map(|commit| format!(" (commit {commit} {date:?})")).unwrap_or_default();
+        let after = run_id
+            .map(|commit| format!(" (commit {commit} {date:?})"))
+            .unwrap_or_default();
         println!("the Ben shell (WIP){after}");
         return Ok(());
     };
@@ -25,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if debug_program {
         eprintln!("{program:#?}");
     } else {
-        evaluate::evaluate_program(program);
+        evaluate::evaluate_program(&program);
     }
 
     Ok(())
@@ -60,9 +62,9 @@ mod ast {
 }
 
 mod parsing {
-    use super::ast::*;
+    use super::ast::{Argument, Command, Program, Statement};
 
-    pub fn parse_program<'a>(on: &'a str) -> Program<'a> {
+    pub fn parse_program(on: &str) -> Program<'_> {
         let mut stmts: Vec<Statement> = Vec::new();
 
         let mut lines = on.lines();
@@ -118,7 +120,7 @@ mod parsing {
         }
     }
 
-    fn parse_command<'a>(on: &'a str) -> Command<'a> {
+    fn parse_command(on: &str) -> Command<'_> {
         let mut name = "";
         let mut arguments = Vec::new();
         let mut in_string = false;
@@ -158,7 +160,7 @@ mod parsing {
 }
 
 mod evaluate {
-    use super::ast::*;
+    use super::ast::{Argument, Command, Program, Statement};
 
     use std::borrow::Cow;
     use std::collections::HashMap;
@@ -166,7 +168,7 @@ mod evaluate {
 
     type Context<'a> = HashMap<&'a str, String>;
 
-    pub fn evaluate_program(program: Program<'_>) {
+    pub fn evaluate_program(program: &Program<'_>) {
         let mut ctx: Context<'_> = HashMap::new();
         for statement in &program.0 {
             evaluate_statement(statement, &mut ctx);
@@ -197,7 +199,7 @@ mod evaluate {
                     ctx.insert("exit_code", exit_code.to_string());
                 }
 
-                for part in result.trim_end().split("\n") {
+                for part in result.trim_end().split('\n') {
                     let part = part.strip_suffix('\r').unwrap_or(part);
                     match iterator.name {
                         "tags" => {
@@ -207,9 +209,9 @@ mod evaluate {
                             ctx.insert("file", part.to_owned());
                         }
                         _ => {}
-                    };
+                    }
                     ctx.insert("iter", part.to_owned());
-                    for statement in statements.iter() {
+                    for statement in statements {
                         evaluate_statement(statement, ctx);
                     }
                 }
@@ -229,13 +231,13 @@ mod evaluate {
                     .split_once(|chr: char| !chr.is_alphanumeric())
                     .map_or(rest, |(rest, _)| rest);
                 if let "ctx" = reference {
-                    result += Cow::Owned(format!("{:?}", ctx));
+                    result += Cow::Owned(format!("{ctx:?}"));
                 } else if let Some(argument) = ctx.get(&reference) {
                     result += Cow::Borrowed(argument.as_str());
                 } else if let Some(env) = crate::utilities::get_environment_variable(reference) {
                     result += Cow::Owned(env);
                 } else {
-                    eprintln!("Could not find reference {reference}")
+                    eprintln!("Could not find reference {reference}");
                 }
                 start = index + 1 + reference.len();
             } else if let "\\" = matched {
@@ -263,6 +265,7 @@ mod evaluate {
         result
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option<i32>) {
         match command.name {
             "literal" => {
@@ -329,7 +332,7 @@ mod evaluate {
                     (value, Some(0))
                 } else {
                     eprintln!("Could not find environment variable {name}");
-                    (Default::default(), Some(1))
+                    (String::default(), Some(1))
                 }
             }
             // File system
@@ -338,10 +341,10 @@ mod evaluate {
                 let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 let output: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 if fs::write(path, output).is_ok() {
-                    (Default::default(), Some(0))
+                    (String::default(), Some(0))
                 } else {
                     eprintln!("Could not write to {path}");
-                    (Default::default(), Some(1))
+                    (String::default(), Some(1))
                 }
             }
             "read" => {
@@ -351,7 +354,7 @@ mod evaluate {
                     (content, Some(0))
                 } else {
                     eprintln!("Could not read {path}");
-                    (Default::default(), Some(1))
+                    (String::default(), Some(1))
                 }
             }
             "append" => {
@@ -361,14 +364,14 @@ mod evaluate {
                 if let Ok(mut content) = fs::read_to_string(path) {
                     content.push_str(to_append);
                     if fs::write(path, content).is_ok() {
-                        (Default::default(), Some(0))
+                        (String::default(), Some(0))
                     } else {
                         eprintln!("Could not write to {path}");
-                        (Default::default(), Some(1))
+                        (String::default(), Some(1))
                     }
                 } else {
                     eprintln!("Could not read {path}");
-                    (Default::default(), Some(1))
+                    (String::default(), Some(1))
                 }
             }
             "file_size" => {
@@ -378,7 +381,7 @@ mod evaluate {
                     (content.len().to_string(), Some(0))
                 } else {
                     eprintln!("Could not read {path}");
-                    (Default::default(), Some(1))
+                    (String::default(), Some(1))
                 }
             }
             "lines" => {
@@ -390,7 +393,7 @@ mod evaluate {
                     (lines.to_string(), Some(0))
                 } else {
                     eprintln!("Could not read {path}");
-                    (Default::default(), Some(1))
+                    (String::default(), Some(1))
                 }
             }
             "mv" | "move" => {
@@ -411,10 +414,10 @@ mod evaluate {
                     let content = fs::read(from).unwrap();
                     fs::write(to, content).unwrap();
                     fs::remove_file(from).unwrap();
-                    (Default::default(), Some(0))
+                    (String::default(), Some(0))
                 } else {
                     eprintln!("unknown path item to move");
-                    (Default::default(), Some(1))
+                    (String::default(), Some(1))
                 }
             }
             "cp" | "copy" => {
@@ -433,10 +436,10 @@ mod evaluate {
                     }
                     let content = fs::read(from).unwrap();
                     fs::write(to, content).unwrap();
-                    (Default::default(), Some(0))
+                    (String::default(), Some(0))
                 } else {
                     eprintln!("unknown path item to remove");
-                    (Default::default(), Some(1))
+                    (String::default(), Some(1))
                 }
             }
             "rm" | "remove" => {
@@ -447,13 +450,13 @@ mod evaluate {
                 let path: &Path = Path::new(path);
                 if path.is_dir() {
                     fs::remove_dir(path).unwrap();
-                    (Default::default(), Some(0))
+                    (String::default(), Some(0))
                 } else if path.is_file() {
                     fs::remove_file(path).unwrap();
-                    (Default::default(), Some(0))
+                    (String::default(), Some(0))
                 } else {
                     eprintln!("unknown path item to remove");
-                    (Default::default(), Some(1))
+                    (String::default(), Some(1))
                 }
             }
             // String commands
@@ -475,7 +478,7 @@ mod evaluate {
             "concatenate" => {
                 use std::fmt::Write;
                 let mut s = String::new();
-                for argument in command.arguments.iter() {
+                for argument in &command.arguments {
                     if !s.is_empty() {
                         writeln!(&mut s).unwrap();
                     }
@@ -564,7 +567,7 @@ mod evaluate {
 
                 if let Some(arg) = command.arguments.first() {
                     cmd = cmd.arg(evaluate_argument(arg, ctx).into_owned());
-                };
+                }
 
                 let result = cmd.output().expect("`git tag --list` failed");
                 let tags = String::from_utf8(result.stdout).expect("invalid UTF8");
@@ -581,16 +584,16 @@ mod evaluate {
                         let mut output = String::new();
                         for path in paths {
                             if !output.is_empty() {
-                                output.push('\n')
+                                output.push('\n');
                             }
                             output
-                                .push_str(&path.unwrap().display().to_string().replace("\\", "/"));
+                                .push_str(&path.unwrap().display().to_string().replace('\\', "/"));
                         }
                         (output, Some(0))
                     }
                     Err(err) => {
                         eprintln!("Error reading files glob {err:?}");
-                        (Default::default(), Some(1))
+                        (String::default(), Some(1))
                     }
                 }
             }
@@ -619,10 +622,10 @@ mod evaluate {
                 print!("{output}");
                 (output, result.status.code())
             }
-            "noop" => (String::new(), None),
+            "noop" => (String::default(), None),
             name => {
                 eprintln!("unknown command '{name}'");
-                (Default::default(), Some(1))
+                (String::default(), Some(1))
             }
         }
     }
