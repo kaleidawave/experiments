@@ -3,7 +3,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut args = env::args().skip(1);
     let Some(first) = args.next() else {
-        println!("the Ben shell (WIP)");
+        let run_id = option_env!("GITHUB_RUN_ID");
+        let date = option_env!("GITHUB_RUN_DATE");
+        let after = run_id.map(|commit| format!(" (commit {commit} {date:?})")).unwrap_or_default();
+        println!("the Ben shell (WIP){after}");
         return Ok(());
     };
 
@@ -194,7 +197,7 @@ mod evaluate {
                     ctx.insert("exit_code", exit_code.to_string());
                 }
 
-                for part in result.split("\n") {
+                for part in result.trim_end().split("\n") {
                     let part = part.strip_suffix('\r').unwrap_or(part);
                     match iterator.name {
                         "tags" => {
@@ -351,6 +354,23 @@ mod evaluate {
                     (Default::default(), Some(1))
                 }
             }
+            "append" => {
+                let mut arguments = command.arguments.iter();
+                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let to_append: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                if let Ok(mut content) = fs::read_to_string(path) {
+                    content.push_str(to_append);
+                    if fs::write(path, content).is_ok() {
+                        (Default::default(), Some(0))
+                    } else {
+                        eprintln!("Could not write to {path}");
+                        (Default::default(), Some(1))
+                    }
+                } else {
+                    eprintln!("Could not read {path}");
+                    (Default::default(), Some(1))
+                }
+            }
             "file_size" => {
                 let mut arguments = command.arguments.iter();
                 let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
@@ -393,7 +413,7 @@ mod evaluate {
                     fs::remove_file(from).unwrap();
                     (Default::default(), Some(0))
                 } else {
-                    eprintln!("unknown path item to remove");
+                    eprintln!("unknown path item to move");
                     (Default::default(), Some(1))
                 }
             }

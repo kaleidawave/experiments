@@ -1,4 +1,4 @@
-for files "examples/*.sh" each
+for files "examples/*" each
 	let content = read $file
 	echo "---"
 	echo $file
