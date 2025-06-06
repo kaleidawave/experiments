@@ -4,17 +4,36 @@ on:
   push
 
 jobs:
-  publish-asserts:
-    runs-on: ubuntu-latest
+  publish-assets:
     permissions: write-all
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        binary: [shell-language]
+        include:
+        - os: windows-latest
+          platform-name: x86_64-pc-windows
+          executable-extension: ".exe"
+        - os: ubuntu-latest
+          platform-name: x86_64-unknown-linux
+
+    runs-on: ${{ matrix.os }}
+
+    env:
+      LEVEL: debug
+      GH_RELEASE: assets
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Build binary
-        working-directory: shell-language
+        working-directory: ${{ matrix.binary }}
         run: cargo build
+        
       - name: Publish binary
-        working-directory: shell-language
-        run: gh release upload assets ./target/debug/shell-language#shell-language --clobber
+        working-directory: ${{ matrix.binary }}
+        run: gh release upload $GH_RELEASE ./target/$LEVEL/${{ matrix.binary }}${{ matrix.executable-extension }}#${{ matrix.binary }}-${{ matrix.platform-name }}${{ matrix.executable-extension }} --clobber
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
