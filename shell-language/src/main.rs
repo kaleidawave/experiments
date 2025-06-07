@@ -268,11 +268,7 @@ mod evaluate {
     #[allow(clippy::too_many_lines)]
     pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option<i32>) {
         match command.name {
-            "literal" => {
-                // skip any others
-                let first_argument = command.arguments.first().unwrap();
-                (evaluate_argument(first_argument, ctx).into_owned(), None)
-            }
+            // Command line printing
             "echo" | "echo_stdout" => {
                 let mut some = false;
                 for (idx, argument) in command.arguments.iter().enumerate() {
@@ -300,6 +296,7 @@ mod evaluate {
                 eprintln!();
                 (String::new(), None)
             }
+            // Run command
             "run" => {
                 use std::io::{Read, pipe};
                 use std::process::Command;
@@ -335,7 +332,83 @@ mod evaluate {
                     (String::default(), Some(1))
                 }
             }
-            // File system
+            // Filesystem manipulation
+            "mv" | "move" => {
+                use std::path::Path;
+
+                let mut arguments = command.arguments.iter();
+                let from: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let to: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let response =
+                    crate::utilities::move_copy_file(Path::new(from), Path::new(to), true);
+                match response {
+                    Ok(()) => (String::default(), Some(0)),
+                    Err(err) => {
+                        eprintln!("error moving file: {err:?}");
+                        (String::default(), Some(0))
+                    }
+                }
+            }
+            "cp" | "copy" => {
+                use std::path::Path;
+
+                let mut arguments = command.arguments.iter();
+                let from: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let to: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+
+                let response =
+                    crate::utilities::move_copy_file(Path::new(from), Path::new(to), false);
+                match response {
+                    Ok(()) => (String::default(), Some(0)),
+                    Err(err) => {
+                        eprintln!("error copying file: {err:?}");
+                        (String::default(), Some(0))
+                    }
+                }
+            }
+            "rm" | "remove" => {
+                use std::path::Path;
+
+                let mut arguments = command.arguments.iter();
+                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let path: &Path = Path::new(path);
+                if path.is_dir() {
+                    fs::remove_dir(path).unwrap();
+                    (String::default(), Some(0))
+                } else if path.is_file() {
+                    fs::remove_file(path).unwrap();
+                    (String::default(), Some(0))
+                } else {
+                    eprintln!("unknown path item to remove");
+                    (String::default(), Some(1))
+                }
+            }
+            // Scan files
+            "files" => {
+                let pattern = if let Some(arg) = command.arguments.first() {
+                    evaluate_argument(arg, ctx)
+                } else {
+                    Cow::Borrowed("")
+                };
+                match glob::glob(&pattern) {
+                    Ok(paths) => {
+                        let mut output = String::new();
+                        for path in paths {
+                            if !output.is_empty() {
+                                output.push('\n');
+                            }
+                            output
+                                .push_str(&path.unwrap().display().to_string().replace('\\', "/"));
+                        }
+                        (output, Some(0))
+                    }
+                    Err(err) => {
+                        eprintln!("Error reading files glob {err:?}");
+                        (String::default(), Some(1))
+                    }
+                }
+            }
+            // File reads and writes
             "write" => {
                 let mut arguments = command.arguments.iter();
                 let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
@@ -371,91 +444,6 @@ mod evaluate {
                     }
                 } else {
                     eprintln!("Could not read {path}");
-                    (String::default(), Some(1))
-                }
-            }
-            "file_size" => {
-                let mut arguments = command.arguments.iter();
-                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                if let Ok(content) = fs::read_to_string(path) {
-                    (content.len().to_string(), Some(0))
-                } else {
-                    eprintln!("Could not read {path}");
-                    (String::default(), Some(1))
-                }
-            }
-            "lines" => {
-                let mut arguments = command.arguments.iter();
-                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                if let Ok(content) = fs::read_to_string(path) {
-                    let content = content.strip_prefix('\n').unwrap_or(&content);
-                    let lines = content.chars().filter(|chr| *chr == '\n').count();
-                    (lines.to_string(), Some(0))
-                } else {
-                    eprintln!("Could not read {path}");
-                    (String::default(), Some(1))
-                }
-            }
-            "mv" | "move" => {
-                use std::path::Path;
-
-                let mut arguments = command.arguments.iter();
-                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                let from: &Path = Path::new(path);
-                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                let to: &Path = Path::new(path);
-                // TODO can rename (https://doc.rust-lang.org/std/fs/fn.rename.html) sometimes here
-                if from.is_dir() {
-                    todo!("move directory");
-                } else if from.is_file() {
-                    if let Some(parent) = to.parent() {
-                        fs::create_dir_all(parent).unwrap();
-                    }
-                    let content = fs::read(from).unwrap();
-                    fs::write(to, content).unwrap();
-                    fs::remove_file(from).unwrap();
-                    (String::default(), Some(0))
-                } else {
-                    eprintln!("unknown path item to move");
-                    (String::default(), Some(1))
-                }
-            }
-            "cp" | "copy" => {
-                use std::path::Path;
-
-                let mut arguments = command.arguments.iter();
-                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                let from: &Path = Path::new(path);
-                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                let to: &Path = Path::new(path);
-                if from.is_dir() {
-                    todo!("copy directory");
-                } else if from.is_file() {
-                    if let Some(parent) = to.parent() {
-                        fs::create_dir_all(parent).unwrap();
-                    }
-                    let content = fs::read(from).unwrap();
-                    fs::write(to, content).unwrap();
-                    (String::default(), Some(0))
-                } else {
-                    eprintln!("unknown path item to remove");
-                    (String::default(), Some(1))
-                }
-            }
-            "rm" | "remove" => {
-                use std::path::Path;
-
-                let mut arguments = command.arguments.iter();
-                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                let path: &Path = Path::new(path);
-                if path.is_dir() {
-                    fs::remove_dir(path).unwrap();
-                    (String::default(), Some(0))
-                } else if path.is_file() {
-                    fs::remove_file(path).unwrap();
-                    (String::default(), Some(0))
-                } else {
-                    eprintln!("unknown path item to remove");
                     (String::default(), Some(1))
                 }
             }
@@ -539,6 +527,16 @@ mod evaluate {
                 };
                 (out.unwrap_or_default().to_owned(), None)
             }
+            "size" => {
+                let mut arguments = command.arguments.iter();
+                let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                (item.len().to_string(), None)
+            }
+            "lines" => {
+                let mut arguments = command.arguments.iter();
+                let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                (item.lines().count().to_string(), None)
+            }
             // Control flow
             "if_equal" => {
                 let mut arguments = command.arguments.iter();
@@ -558,44 +556,6 @@ mod evaluate {
                     }
                 };
                 (out.into_owned(), None)
-            }
-            // Git tags
-            "tags" => {
-                use std::process::Command;
-                let mut c = Command::new("git");
-                let mut cmd = c.arg("tag").arg("--list");
-
-                if let Some(arg) = command.arguments.first() {
-                    cmd = cmd.arg(evaluate_argument(arg, ctx).into_owned());
-                }
-
-                let result = cmd.output().expect("`git tag --list` failed");
-                let tags = String::from_utf8(result.stdout).expect("invalid UTF8");
-                (tags, result.status.code())
-            }
-            "files" => {
-                let pattern = if let Some(arg) = command.arguments.first() {
-                    evaluate_argument(arg, ctx)
-                } else {
-                    Cow::Borrowed("")
-                };
-                match glob::glob(&pattern) {
-                    Ok(paths) => {
-                        let mut output = String::new();
-                        for path in paths {
-                            if !output.is_empty() {
-                                output.push('\n');
-                            }
-                            output
-                                .push_str(&path.unwrap().display().to_string().replace('\\', "/"));
-                        }
-                        (output, Some(0))
-                    }
-                    Err(err) => {
-                        eprintln!("Error reading files glob {err:?}");
-                        (String::default(), Some(1))
-                    }
-                }
             }
             // TODO WIP. "known programs"
             command_name @ ("cargo" | "git" | "gh" | "hyperfine" | "jq") => {
@@ -622,6 +582,13 @@ mod evaluate {
                 print!("{output}");
                 (output, result.status.code())
             }
+            // For constants
+            "literal" | "constant" => {
+                // skip any others
+                let first_argument = command.arguments.first().unwrap();
+                (evaluate_argument(first_argument, ctx).into_owned(), None)
+            }
+            // For conditionally invoking commands
             "noop" => (String::default(), None),
             name => {
                 eprintln!("unknown command '{name}'");
@@ -632,7 +599,39 @@ mod evaluate {
 }
 
 mod utilities {
+    use std::{env, fs, path::Path};
+
     pub fn get_environment_variable(name: &str) -> Option<String> {
-        std::env::vars().find_map(|(n, v)| (n == name).then_some(v))
+        env::vars().find_map(|(n, v)| (n == name).then_some(v))
+    }
+
+    /// `remove_after = true => move`, `remove_after = false => copy`
+    /// TODO if `remove_after`, in some cases can [rename](https://doc.rust-lang.org/std/fs/fn.rename.html) sometimes here
+    pub fn move_copy_file(
+        from: &Path,
+        to: &Path,
+        remove_after: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if from.is_dir() {
+            todo!("copy/move directory");
+        } else if from.is_file() {
+            if let Some(parent) = to.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let content = fs::read(from)?;
+            fs::write(to, content)?;
+
+            let metadata = fs::metadata(from)?;
+            let permissions = metadata.permissions();
+            fs::set_permissions(to, permissions)?;
+
+            if remove_after {
+                fs::remove_file(from)?;
+            }
+
+            Ok(())
+        } else {
+            Err("Unknown path item to move".into())
+        }
     }
 }
