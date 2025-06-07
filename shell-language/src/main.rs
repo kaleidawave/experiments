@@ -333,20 +333,38 @@ mod evaluate {
             // Command line printing
             "echo" | "echo_stdout" => {
                 let mut some = false;
-                for (idx, argument) in command.arguments.iter().enumerate() {
-                    let result = evaluate_argument(argument, ctx);
-                    if !result.is_empty() {
-                        some = true;
-                        if idx > 0 {
-                            print!(" ");
+                if let Some("run") = command.arguments.first().map(|arg| arg.0) {
+                    let mut arguments = command.arguments[1..].iter();
+
+                    let first_argument = arguments.next().expect("command name");
+                    let command = evaluate_argument(first_argument, ctx);
+                    let args = arguments
+                        .map(|arg| evaluate_argument(arg, ctx).into_owned())
+                        .filter(|arg| !arg.is_empty())
+                        .collect::<Vec<String>>();
+
+                    // TODO don't need to collect here...
+                    let (output, result) =
+                        crate::utilities::run_command(command.into_owned(), args, Vec::default());
+
+                    print!("{output}");
+                    (String::new(), result.code())
+                } else {
+                    for (idx, argument) in command.arguments.iter().enumerate() {
+                        let result = evaluate_argument(argument, ctx);
+                        if !result.is_empty() {
+                            some = true;
+                            if idx > 0 {
+                                print!(" ");
+                            }
+                            print!("{result}");
                         }
-                        print!("{result}");
                     }
+                    if command.arguments.is_empty() || some {
+                        println!();
+                    }
+                    (String::new(), None)
                 }
-                if command.arguments.is_empty() || some {
-                    println!();
-                }
-                (String::new(), None)
             }
             "echo_stderr" => {
                 for (idx, argument) in command.arguments.iter().enumerate() {
@@ -360,12 +378,6 @@ mod evaluate {
             }
             // Run command
             name @ ("run" | "with") => {
-                use std::io::{Read, pipe};
-                use std::process::Command;
-
-                // Using pipe we collect both stdout and stderr in order
-                let (mut reader, writer) = pipe().expect("could not create pipe");
-
                 let mut arguments = command.arguments.iter();
                 let mut env: Vec<(String, String)> = Vec::new();
                 if let "with" = name {
@@ -383,24 +395,14 @@ mod evaluate {
                 }
 
                 let first_argument = arguments.next().expect("command name");
-                let command: &str = &evaluate_argument(first_argument, ctx);
+                let command = evaluate_argument(first_argument, ctx);
                 let args = arguments
                     .map(|arg| evaluate_argument(arg, ctx).into_owned())
                     .filter(|arg| !arg.is_empty())
                     .collect::<Vec<String>>();
 
-                let mut child = Command::new(command)
-                    .args(args)
-                    .stdout(writer.try_clone().expect("could not clone writer pipe"))
-                    .stderr(writer)
-                    .envs(env)
-                    .spawn()
-                    .expect("Failed to spawn command");
-
-                let mut output = String::new();
-                reader.read_to_string(&mut output).expect("invalid UTF8");
-
-                let result = child.wait().expect("command not finished");
+                let (output, result) =
+                    crate::utilities::run_command(command.into_owned(), args, env);
 
                 (output, result.code())
             }
@@ -699,28 +701,15 @@ mod evaluate {
             // TODO WIP. "known programs"
             command_name @ ("cargo" | "git" | "gh" | "hyperfine" | "jq" | "yq" | "node"
             | "deno" | "bun" | "sqlite3" | "python" | "npm" | "bat") => {
-                use std::io::{Read, pipe};
-                use std::process::Command;
-
-                let (mut reader, writer) = pipe().expect("could not create pipe");
-
-                let arguments = command.arguments.iter();
-                let args = arguments
+                let args = command
+                    .arguments
+                    .iter()
                     .map(|arg| evaluate_argument(arg, ctx).into_owned())
                     .filter(|arg| !arg.is_empty())
                     .collect::<Vec<String>>();
 
-                let mut child = Command::new(command_name)
-                    .args(args)
-                    .stdout(writer.try_clone().expect("could not clone writer pipe"))
-                    .stderr(writer)
-                    .spawn()
-                    .expect("Failed to spawn command");
-
-                let mut output = String::new();
-                reader.read_to_string(&mut output).expect("invalid UTF8");
-
-                let result = child.wait().expect("command not finished");
+                let (output, result) =
+                    crate::utilities::run_command(command_name.to_owned(), args, Vec::default());
 
                 (output, result.code())
             }
@@ -780,6 +769,33 @@ mod utilities {
     /// Reverse <https://howtospell.co.uk/y-to-ies-or-s-plural-rule>
     pub fn depluralise(on: &str) -> Option<&str> {
         on.strip_suffix("ies").or_else(|| on.strip_suffix("s"))
+    }
+
+    pub fn run_command(
+        command: String,
+        args: Vec<String>,
+        env: Vec<(String, String)>,
+    ) -> (String, std::process::ExitStatus) {
+        use std::io::{Read, pipe};
+        use std::process::Command;
+
+        // Using pipe we collect both stdout and stderr in order
+        let (mut reader, writer) = pipe().expect("could not create pipe");
+
+        let mut child = Command::new(command)
+            .args(args)
+            .stdout(writer.try_clone().expect("could not clone writer pipe"))
+            .stderr(writer)
+            .envs(env)
+            .spawn()
+            .expect("Failed to spawn command");
+
+        let mut output = String::new();
+        reader.read_to_string(&mut output).expect("invalid UTF8");
+
+        let result = child.wait().expect("command not finished");
+
+        (output, result)
     }
 }
 
