@@ -343,11 +343,14 @@ mod evaluate {
                         .filter(|arg| !arg.is_empty())
                         .collect::<Vec<String>>();
 
-                    // TODO don't need to collect here...
-                    let (output, result) =
-                        crate::utilities::run_command(command.into_owned(), args, Vec::default());
+                    let (_output, result) = crate::utilities::run_command(
+                        command.into_owned(),
+                        args,
+                        None,
+                        false,
+                        false,
+                    );
 
-                    print!("{output}");
                     (String::new(), result.code())
                 } else {
                     for (idx, argument) in command.arguments.iter().enumerate() {
@@ -396,13 +399,29 @@ mod evaluate {
 
                 let first_argument = arguments.next().expect("command name");
                 let command = evaluate_argument(first_argument, ctx);
-                let args = arguments
+                let mut args: Vec<String> = arguments
                     .map(|arg| evaluate_argument(arg, ctx).into_owned())
                     .filter(|arg| !arg.is_empty())
-                    .collect::<Vec<String>>();
+                    .collect();
 
-                let (output, result) =
-                    crate::utilities::run_command(command.into_owned(), args, env);
+                let (capture_stdout, capture_stderr) = if args
+                    .pop_if(|top| top == "--merge-stdout-and-stderr")
+                    .is_some()
+                {
+                    (true, true)
+                } else if args.pop_if(|top| top == "--only-capture-stderr").is_some() {
+                    (false, true)
+                } else {
+                    (true, false)
+                };
+
+                let (output, result) = crate::utilities::run_command(
+                    command.into_owned(),
+                    args,
+                    Some(env),
+                    capture_stdout,
+                    capture_stderr,
+                );
 
                 (output, result.code())
             }
@@ -520,6 +539,8 @@ mod evaluate {
                 let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 let to_append: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 if let Ok(mut content) = fs::read_to_string(path) {
+                    // I think this is okay
+                    content.push('\n');
                     content.push_str(to_append);
                     if fs::write(path, content).is_ok() {
                         (String::default(), Some(0))
@@ -550,6 +571,7 @@ mod evaluate {
             }
             "concatenate" => {
                 use std::fmt::Write;
+
                 let mut s = String::new();
                 for argument in &command.arguments {
                     if !s.is_empty() {
@@ -563,7 +585,9 @@ mod evaluate {
                 (s, None)
             }
             "concatenate_separator" => {
+                // could concatenate + replace...
                 use std::fmt::Write;
+
                 let mut s = String::new();
                 let mut arguments = command.arguments.iter();
                 let separator: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
@@ -626,6 +650,37 @@ mod evaluate {
                 let mut arguments = command.arguments.iter();
                 let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 (item.trim().to_owned(), None)
+            }
+            "format_number" => {
+                let mut arguments = command.arguments.iter();
+                let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                // implementation is a little borked
+                let result = if item.contains('.') {
+                    let num: f64 = item.parse().expect("cannot format non float");
+                    let is_negative = num.is_sign_negative();
+                    let abs_num = num.abs();
+                    let (whole, fract) = (abs_num.trunc(), abs_num.fract());
+                    let sign = if is_negative { "-" } else { "" };
+                    let whole = crate::utilities::separate_numbers(&whole.to_string());
+                    let fract = if fract == 0.0 {
+                        String::new()
+                    } else {
+                        let fract =
+                            crate::utilities::separate_numbers_fract(&fract.to_string()[2..]);
+                        format!(" . {fract}")
+                    };
+                    format!("{sign}{whole}{fract}")
+                } else if item.contains('-') {
+                    let num: i64 = item.parse().expect("cannot format non integer");
+                    let is_negative = num.is_negative();
+                    let sign = if is_negative { "-" } else { "" };
+                    let whole = crate::utilities::separate_numbers(&num.abs().to_string());
+                    format!("{sign}{whole}")
+                } else {
+                    let num: u64 = item.parse().expect("cannot format non natural");
+                    crate::utilities::separate_numbers(&num.to_string())
+                };
+                (result, None)
             }
             // regular expressions string conditionals
             #[cfg(feature = "regular-expressions")]
@@ -709,7 +764,7 @@ mod evaluate {
                     .collect::<Vec<String>>();
 
                 let (output, result) =
-                    crate::utilities::run_command(command_name.to_owned(), args, Vec::default());
+                    crate::utilities::run_command(command_name.to_owned(), args, None, true, false);
 
                 (output, result.code())
             }
@@ -774,28 +829,87 @@ mod utilities {
     pub fn run_command(
         command: String,
         args: Vec<String>,
-        env: Vec<(String, String)>,
+        env: Option<Vec<(String, String)>>,
+        capture_stdout: bool,
+        capture_stderr: bool,
     ) -> (String, std::process::ExitStatus) {
         use std::io::{Read, pipe};
-        use std::process::Command;
+        use std::process::{Command, Stdio};
 
-        // Using pipe we collect both stdout and stderr in order
-        let (mut reader, writer) = pipe().expect("could not create pipe");
+        let env = env.unwrap_or_default();
+
+        let (stdout, stderr, reader): (Stdio, Stdio, Option<_>) =
+            match (capture_stdout, capture_stderr) {
+                (true, true) => {
+                    // Using pipe we collect both stdout and stderr in order
+                    let (reader, writer) = pipe().expect("could not create pipe");
+                    (
+                        writer
+                            .try_clone()
+                            .expect("could not clone writer pipe")
+                            .into(),
+                        writer.into(),
+                        Some(reader),
+                    )
+                }
+                (true, false) => {
+                    // Shouldn't need pipe here
+                    let (reader, writer) = pipe().expect("could not create pipe");
+                    (writer.into(), Stdio::inherit(), Some(reader))
+                }
+                (false, true) => {
+                    // Shouldn't need pipe here
+                    let (reader, writer) = pipe().expect("could not create pipe");
+                    (Stdio::null(), writer.into(), Some(reader))
+                }
+                (false, false) => (Stdio::inherit(), Stdio::inherit(), None),
+            };
 
         let mut child = Command::new(command)
             .args(args)
-            .stdout(writer.try_clone().expect("could not clone writer pipe"))
-            .stderr(writer)
+            .stdout(stdout)
+            .stderr(stderr)
             .envs(env)
             .spawn()
             .expect("Failed to spawn command");
 
-        let mut output = String::new();
-        reader.read_to_string(&mut output).expect("invalid UTF8");
+        if let Some(mut reader) = reader {
+            let mut output = String::new();
+            reader.read_to_string(&mut output).expect("invalid UTF8");
+            let result = child.wait().expect("command not finished");
+            // Remove whitespace from end
+            output.truncate(output.trim_end().len());
+            (output, result)
+        } else {
+            let result = child.wait().expect("command not finished");
+            (String::default(), result)
+        }
+    }
 
-        let result = child.wait().expect("command not finished");
+    pub fn separate_numbers(whole_part: &str) -> String {
+        let n: Vec<char> = whole_part.chars().collect();
+        let mut s = String::new();
+        for part in n.rchunks(3).rev() {
+            if !s.is_empty() {
+                s.push(' ');
+            }
+            let chunk: String = part.iter().copied().collect();
+            s.push_str(&chunk);
+        }
+        s
+    }
 
-        (output, result)
+    pub fn separate_numbers_fract(fract_part: &str) -> String {
+        let n: Vec<char> = fract_part.chars().collect();
+        let mut s = String::new();
+        for part in n.chunks(3) {
+            if !s.is_empty() {
+                s.push(' ');
+            }
+            let chunk: String = part.iter().copied().collect();
+            s.push_str(&chunk);
+        }
+        s
     }
 }
 
