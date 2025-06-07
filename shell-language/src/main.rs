@@ -4,7 +4,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
     let Some(first) = args.next() else {
         let run_id = option_env!("GITHUB_RUN_ID");
-        let date = option_env!("GITHUB_RUN_DATE");
+        let date = option_env!("GIT_LAST_COMMIT");
         let after = run_id
             .map(|commit| format!(" (commit {commit} {date:?})"))
             .unwrap_or_default();
@@ -156,17 +156,23 @@ mod parsing {
     fn parse_command(on: &str) -> Command<'_> {
         let mut name = "";
         let mut arguments = Vec::new();
-        let mut in_string = false;
+        let mut in_string: Option<char> = None;
         let mut last = 0;
+        let mut escaped = false;
         for (idx, chr) in on.char_indices() {
-            if in_string {
-                if let '"' | '\'' = chr {
+            if let Some(matcher) = in_string {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                if chr == matcher {
                     arguments.push(Argument(&on[last..idx]));
                     last = idx + 1;
-                    in_string = false;
+                    in_string = None;
                 }
-            } else if let '"' | '\'' = chr {
-                in_string = true;
+                escaped = chr == '\\';
+            } else if let '"' | '\'' | '`' = chr {
+                in_string = Some(chr);
                 last = idx + 1;
             } else if let ' ' = chr {
                 let part = &on[last..idx].trim();
@@ -242,8 +248,10 @@ mod evaluate {
                             ctx.insert("file", part.to_owned());
                         }
                         "constant" => {
-                            if let Some(name) =
-                                crate::utilities::depluralise(iterator.arguments[0].0)
+                            if let Some(name) = iterator.arguments[0]
+                                .0
+                                .strip_prefix('$')
+                                .and_then(|rest| crate::utilities::depluralise(rest))
                             {
                                 ctx.insert(name, part.to_owned());
                             }
@@ -285,7 +293,7 @@ mod evaluate {
                 } else if let Some(env) = crate::utilities::get_environment_variable(reference) {
                     result += Cow::Owned(env);
                 } else {
-                    eprintln!("Could not find reference {reference}");
+                    eprintln!("shell-language: Could not find reference {reference}");
                 }
                 start = index + 1 + reference.len();
             } else if let "\\" = matched {
@@ -303,7 +311,9 @@ mod evaluate {
                         last_was_escape_backslash = true;
                         result += Cow::Borrowed("\\");
                     }
-                    Some('\"') => {}
+                    Some('\"') => {
+                        result += Cow::Borrowed("\"");
+                    }
                     character => {
                         eprintln!("unknown escape {character:?}");
                     }

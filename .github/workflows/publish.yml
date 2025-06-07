@@ -29,7 +29,9 @@ jobs:
 
       - name: Set variables
         id: information
-        run: echo "GITHUB_RUN_DATE=$(date --date='TZ="Europe/London"' +"%Y-%m-%d")" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "GITHUB_RUN_DATE=$(TZ="Europe/London" date +"%Y-%m-%d %T")" >> "$GITHUB_OUTPUT"
+          echo "GIT_LAST_COMMIT=$(git log -n 1 --format="%H")" >> "$GITHUB_OUTPUT"
         shell: bash
 
       - name: Build binary
@@ -37,6 +39,7 @@ jobs:
         run: cargo build
         env:
           GITHUB_RUN_DATE: ${{ steps.information.outputs.GITHUB_RUN_DATE }}
+          GIT_LAST_COMMIT: ${{ steps.information.outputs.GIT_LAST_COMMIT }}
         
       - name: Publish binary
         working-directory: ${{ matrix.binary }}
