@@ -12,22 +12,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     };
 
-    let source: String = if let "--evaluate" | "-e" = first.as_str() {
-        args.next().unwrap_or_default()
+    if let "--interactive" | "-i" = first.as_str() {
+        let mut state = crate::interactive::InteractiveState::new();
+        loop {
+            let input = {
+                use std::io;
+                print!("> ");
+                std::io::Write::flush(&mut io::stdout()).unwrap();
+                let mut input = String::new();
+                let std_in = &mut io::stdin();
+
+                // multiline_term_input only works on windows for now
+                #[cfg(target_family = "windows")]
+                let _n = multiline_term_input::read_string(std_in, &mut input);
+
+                #[cfg(target_family = "unix")]
+                let _n = std_in.read_line(&mut input).unwrap();
+
+                input
+            };
+
+            let input = input.trim();
+
+            if input.is_empty() {
+                continue;
+            }
+
+            if let "exit" | "quit" = input {
+                break;
+            }
+
+            state.parse_and_evaluate_command(input.to_owned());
+        }
     } else {
-        fs::read_to_string(first)?
-    };
+        let source: String = if let "--evaluate" | "-e" = first.as_str() {
+            args.next().unwrap_or_default()
+        } else {
+            fs::read_to_string(first)?
+        };
 
-    let rest: Vec<_> = args.collect();
+        let rest: Vec<_> = args.collect();
 
-    let debug_program: bool = rest.iter().any(|flag| flag == "--debug-program");
+        let debug_program: bool = rest.iter().any(|flag| flag == "--debug-program");
+        let program = parsing::parse_program(&source);
 
-    let program = parsing::parse_program(&source);
-
-    if debug_program {
-        eprintln!("{program:#?}");
-    } else {
-        evaluate::evaluate_program(&program);
+        if debug_program {
+            eprintln!("{program:#?}");
+        } else {
+            evaluate::evaluate_program(&program);
+        }
     }
 
     Ok(())
@@ -76,7 +109,7 @@ mod parsing {
         Program(stmts)
     }
 
-    fn parse_statement<'a>(
+    pub fn parse_statement<'a>(
         line: &'a str,
         lines: &mut dyn Iterator<Item = &'a str>,
     ) -> Option<Statement<'a>> {
@@ -166,7 +199,7 @@ mod evaluate {
     use std::collections::HashMap;
     use std::fs;
 
-    type Context<'a> = HashMap<&'a str, String>;
+    pub type Context<'a> = HashMap<&'a str, String>;
 
     pub fn evaluate_program(program: &Program<'_>) {
         let mut ctx: Context<'_> = HashMap::new();
@@ -175,7 +208,7 @@ mod evaluate {
         }
     }
 
-    fn evaluate_statement<'a>(statement: &Statement<'a>, ctx: &mut Context<'a>) {
+    pub fn evaluate_statement<'a>(statement: &Statement<'a>, ctx: &mut Context<'a>) {
         match statement {
             Statement::Declaration { name, value } => {
                 let (value, exit_code) = evaluate_command(value, ctx);
@@ -737,5 +770,28 @@ mod utilities {
     /// Reverse <https://howtospell.co.uk/y-to-ies-or-s-plural-rule>
     pub fn depluralise(on: &str) -> Option<&str> {
         on.strip_suffix("ies").or_else(|| on.strip_suffix("s"))
+    }
+}
+
+mod interactive {
+    use super::evaluate::{Context, evaluate_statement};
+    use super::parsing::parse_statement;
+
+    #[derive(Default)]
+    pub struct InteractiveState {
+        context: Context<'static>,
+    }
+
+    impl InteractiveState {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn parse_and_evaluate_command(&mut self, command: String) {
+            // TODO can we append it somewhere, that doesn't move. Pinned?
+            let command = String::leak(command);
+            let statement = parse_statement(command, &mut "".lines()).expect("no statement");
+            evaluate_statement(&statement, &mut self.context);
+        }
     }
 }
