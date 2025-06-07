@@ -582,6 +582,57 @@ mod evaluate {
                 let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 (item.trim().to_owned(), None)
             }
+            // regular expressions string conditionals
+            #[cfg(feature = "regular-expressions")]
+            "regexp" => {
+                use regress::Regex;
+
+                let mut arguments = command.arguments.iter();
+                let source: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let expression: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+
+                let re = Regex::new(expression).unwrap();
+                let result = re.find(source);
+
+                if let Some(r#match) = result {
+                    if let Some("extract") = arguments.next().map(|argument| argument.0) {
+                        let name: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                        let range = r#match
+                            .named_groups()
+                            .find_map(|(key, range)| (key == name).then_some(range));
+                        if let Some(range) = range.flatten() {
+                            (source[range].to_owned(), Some(0))
+                        } else {
+                            eprintln!("No group {name}");
+                            (String::default(), Some(1))
+                        }
+                    } else {
+                        (source[r#match.range].to_owned(), Some(0))
+                    }
+                } else {
+                    eprintln!("No match");
+                    (String::default(), Some(1))
+                }
+            }
+            // Utilities
+            #[cfg(feature = "date")]
+            "date" => {
+                use jiff::{Timestamp, fmt::strtime};
+
+                let mut arguments = command.arguments.iter();
+                let format = if let Some(argument) = arguments.next() {
+                    evaluate_argument(argument, ctx)
+                } else {
+                    Cow::Borrowed("%a %-d %b %Y %T %z")
+                };
+                let now = Timestamp::now();
+                if let Ok(rendered) = strtime::format(&*format, now) {
+                    (rendered, None)
+                } else {
+                    eprintln!("Invalid format {format}");
+                    (String::default(), Some(1))
+                }
+            }
             // Control flow
             "if_equal" => {
                 let mut arguments = command.arguments.iter();
