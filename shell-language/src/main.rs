@@ -230,10 +230,18 @@ mod evaluate {
     fn evaluate_argument<'a>(argument: &Argument<'a>, ctx: &'a Context<'a>) -> Cow<'a, str> {
         let mut result = Cow::Borrowed("");
         let mut start = 0;
-        for (index, matched) in argument.0.match_indices(['$', '\\']) {
-            result += &argument.0[start..index];
+        let on = &argument.0;
+        let mut last_was_escape_backslash = false;
+        for (index, matched) in on.match_indices(['$', '\\']) {
+            let skip = last_was_escape_backslash && matched == "\\";
+            last_was_escape_backslash = false;
+            if skip {
+                continue;
+            }
+
+            result += &on[start..index];
             if let "$" = matched {
-                let rest = &argument.0[(index + 1)..];
+                let rest = &on[(index + 1)..];
                 let reference = rest
                     .split_once(|chr: char| !(chr.is_alphanumeric() || matches!(chr, '_')))
                     .map_or(rest, |(rest, _)| rest);
@@ -248,7 +256,7 @@ mod evaluate {
                 }
                 start = index + 1 + reference.len();
             } else if let "\\" = matched {
-                match argument.0[(index + 1)..].chars().next() {
+                match on[(index + 1)..].chars().next() {
                     Some('n') => {
                         result += Cow::Borrowed("\n");
                     }
@@ -257,6 +265,10 @@ mod evaluate {
                     }
                     Some('r') => {
                         result += Cow::Borrowed("\r");
+                    }
+                    Some('\\') => {
+                        last_was_escape_backslash = true;
+                        result += Cow::Borrowed("\\");
                     }
                     Some('\"') => {}
                     character => {
@@ -268,7 +280,7 @@ mod evaluate {
                 unreachable!("matched '{matched}'");
             }
         }
-        result += &argument.0[start..];
+        result += &on[start..];
         result
     }
 
