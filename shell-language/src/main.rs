@@ -202,11 +202,18 @@ mod evaluate {
                 for part in result.trim_end().split('\n') {
                     let part = part.strip_suffix('\r').unwrap_or(part);
                     match iterator.name {
-                        "tags" => {
+                        "git" if iterator.arguments.first().is_some_and(|arg| arg.0 == "tag") => {
                             ctx.insert("tag", part.to_owned());
                         }
                         "files" => {
                             ctx.insert("file", part.to_owned());
+                        }
+                        "constant" => {
+                            if let Some(name) =
+                                crate::utilities::depluralise(iterator.arguments[0].0)
+                            {
+                                ctx.insert(name, part.to_owned());
+                            }
                         }
                         _ => {}
                     }
@@ -228,7 +235,7 @@ mod evaluate {
             if let "$" = matched {
                 let rest = &argument.0[(index + 1)..];
                 let reference = rest
-                    .split_once(|chr: char| !chr.is_alphanumeric())
+                    .split_once(|chr: char| !(chr.is_alphanumeric() || matches!(chr, '_')))
                     .map_or(rest, |(rest, _)| rest);
                 if let "ctx" = reference {
                     result += Cow::Owned(format!("{ctx:?}"));
@@ -297,29 +304,50 @@ mod evaluate {
                 (String::new(), None)
             }
             // Run command
-            "run" => {
+            name @ ("run" | "with") => {
                 use std::io::{Read, pipe};
                 use std::process::Command;
+
+                // Using pipe we collect both stdout and stderr in order
                 let (mut reader, writer) = pipe().expect("could not create pipe");
 
                 let mut arguments = command.arguments.iter();
-                let first_argument = arguments.next().unwrap();
+                let mut env: Vec<(String, String)> = Vec::new();
+                if let "with" = name {
+                    while let Some(key) = arguments.next() {
+                        if let "run" = key.0 {
+                            break;
+                        }
+                        let key = evaluate_argument(key, ctx);
+                        let value = arguments.next().expect("env value");
+                        let value = evaluate_argument(value, ctx);
+                        if !value.is_empty() {
+                            env.push((key.into_owned(), value.into_owned()));
+                        }
+                    }
+                }
+
+                let first_argument = arguments.next().expect("command name");
                 let command: &str = &evaluate_argument(first_argument, ctx);
                 let args = arguments
                     .map(|arg| evaluate_argument(arg, ctx).into_owned())
                     .filter(|arg| !arg.is_empty())
                     .collect::<Vec<String>>();
 
-                let result = Command::new(command)
+                let mut child = Command::new(command)
                     .args(args)
                     .stdout(writer.try_clone().expect("could not clone writer pipe"))
                     .stderr(writer)
-                    .output()
-                    .expect("Failed to execute command");
+                    .envs(env)
+                    .spawn()
+                    .expect("Failed to spawn command");
 
                 let mut output = String::new();
                 reader.read_to_string(&mut output).expect("invalid UTF8");
-                (output, result.status.code())
+
+                let result = child.wait().expect("command not finished");
+
+                (output, result.code())
             }
             // Environment variables
             "env" => {
@@ -537,6 +565,11 @@ mod evaluate {
                 let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 (item.lines().count().to_string(), None)
             }
+            "trim" => {
+                let mut arguments = command.arguments.iter();
+                let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                (item.trim().to_owned(), None)
+            }
             // Control flow
             "if_equal" => {
                 let mut arguments = command.arguments.iter();
@@ -558,7 +591,8 @@ mod evaluate {
                 (out.into_owned(), None)
             }
             // TODO WIP. "known programs"
-            command_name @ ("cargo" | "git" | "gh" | "hyperfine" | "jq") => {
+            command_name @ ("cargo" | "git" | "gh" | "hyperfine" | "jq" | "yq" | "node"
+            | "deno" | "bun" | "sqlite3" | "python" | "npm" | "bat") => {
                 use std::io::{Read, pipe};
                 use std::process::Command;
 
@@ -570,17 +604,19 @@ mod evaluate {
                     .filter(|arg| !arg.is_empty())
                     .collect::<Vec<String>>();
 
-                let result = Command::new(command_name)
+                let mut child = Command::new(command_name)
                     .args(args)
                     .stdout(writer.try_clone().expect("could not clone writer pipe"))
                     .stderr(writer)
-                    .output()
-                    .expect("Failed to execute command");
+                    .spawn()
+                    .expect("Failed to spawn command");
 
                 let mut output = String::new();
                 reader.read_to_string(&mut output).expect("invalid UTF8");
-                print!("{output}");
-                (output, result.status.code())
+
+                let result = child.wait().expect("command not finished");
+
+                (output, result.code())
             }
             // For constants
             "literal" | "constant" => {
@@ -633,5 +669,10 @@ mod utilities {
         } else {
             Err("Unknown path item to move".into())
         }
+    }
+
+    /// Reverse <https://howtospell.co.uk/y-to-ies-or-s-plural-rule>
+    pub fn depluralise(on: &str) -> Option<&str> {
+        on.strip_suffix("ies").or_else(|| on.strip_suffix("s"))
     }
 }
