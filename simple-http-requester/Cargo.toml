@@ -1,0 +1,13 @@
+[package]
+name = "simple-http-requester"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "simple_http_requester"
+path = "lib.rs"
+
+[dependencies]
+native-tls = "0.2.14"
+
