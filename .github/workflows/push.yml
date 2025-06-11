@@ -1,0 +1,21 @@
+name: Check experiment
+
+on:
+  push
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        project: ["stdout-stderr-utilities"]
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Check and test
+      run: |
+        cargo check
+        cargo test
+        cargo clippy
+      working-directory: ${{ matrix.project }}
