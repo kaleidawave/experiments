@@ -1,0 +1,19 @@
+name: Build assets for projects
+
+on:
+  push
+
+jobs:
+  publish-assets:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: tree-sitter-cli
+
+      - name: Run setup
+        run: bash test.sh
+        working-directory: language-tool
