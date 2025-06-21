@@ -1,10 +1,10 @@
-name: Build assets for projects
+name: Tree sitter example
 
 on:
   push
 
 jobs:
-  publish-assets:
+  run-example-tree-sitter:
     runs-on: windows-latest
 
     steps:
