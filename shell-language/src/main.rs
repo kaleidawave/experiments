@@ -97,51 +97,65 @@ mod ast {
 mod parsing {
     use super::ast::{Argument, Command, Program, Statement};
 
+    pub type Lines<'a> = std::iter::Peekable<std::str::Lines<'a>>;
+
     pub fn parse_program(on: &str) -> Program<'_> {
         let mut stmts: Vec<Statement> = Vec::new();
 
-        let mut lines = on.lines();
+        let mut lines = on.lines().peekable();
         while let Some(line) = lines.next() {
-            if let Some(stmt) = parse_statement(line, &mut lines) {
+            if let Some(stmt) = parse_statement(line, &mut lines, 0) {
                 stmts.push(stmt);
             }
         }
         Program(stmts)
     }
 
+    pub fn strip_ident(mut line: &str, upto: usize) -> &str {
+        for _ in 0..upto {
+            line = line
+                .strip_prefix("\t")
+                .or_else(|| line.strip_prefix("  "))
+                .unwrap_or(line);
+        }
+        line
+    }
+
     pub fn parse_statement<'a>(
         line: &'a str,
-        lines: &mut dyn Iterator<Item = &'a str>,
+        lines: &mut Lines<'a>,
+        depth: usize,
     ) -> Option<Statement<'a>> {
+        let line = strip_ident(line, depth);
         // comment or empty
         if line.starts_with('#') || line.trim().is_empty() {
             None
-        } else if let Some(rest) = line.strip_prefix("let ") {
+        } else if let Some(rest) = line.trim_start().strip_prefix("let ") {
             let (name, rest) = rest.split_once(" = ").expect("let declaration needs ' = '");
             Some(Statement::Declaration {
                 name,
                 value: parse_command(rest),
             })
         } else if let Some(inner) = line
+            .trim_start()
             .strip_prefix("for ")
             .and_then(|line| line.strip_suffix(" each"))
         {
             let iterator = parse_command(inner);
-            let mut rest = lines.map_while(|line| {
-                if let line @ Some(_) = line.strip_prefix("\t") {
-                    line
-                } else if let line @ Some(_) = line.strip_prefix("  ") {
-                    line
-                } else if line.trim().is_empty() {
-                    Some(line)
-                } else {
-                    None
-                }
-            });
             let mut statements = Vec::new();
-            while let Some(line) = rest.next() {
-                if let Some(stmt) = parse_statement(line, &mut rest) {
+            loop {
+                let line = lines.next().expect("expected for loop body");
+                if let Some(stmt) = parse_statement(line, lines, depth + 1) {
                     statements.push(stmt);
+                }
+                let r#continue = lines
+                    .peek()
+                    .map(|line| strip_ident(line, depth))
+                    .is_some_and(|line: &str| {
+                        line.is_empty() || line.starts_with("\t") || line.starts_with("  ")
+                    });
+                if !r#continue {
+                    break;
                 }
             }
             Some(Statement::For {
@@ -166,16 +180,16 @@ mod parsing {
                     continue;
                 }
                 if chr == matcher {
-                    arguments.push(Argument(&on[last..idx]));
-                    last = idx + 1;
+                    // arguments.push(Argument(&on[last..=idx]));
+                    // last = idx + 1;
                     in_string = None;
                 }
                 escaped = chr == '\\';
-            } else if let '"' | '\'' | '`' = chr {
+            } else if let ('"' | '\'' | '`', "") = (chr, on[last..idx].trim()) {
                 in_string = Some(chr);
-                last = idx + 1;
+                // last = idx;
             } else if let ' ' = chr {
-                let part = &on[last..idx].trim();
+                let part = on[last..idx].trim();
                 if !part.is_empty() {
                     if name.is_empty() {
                         name = part;
@@ -241,15 +255,21 @@ mod evaluate {
                 for part in result.trim_end().split('\n') {
                     let part = part.strip_suffix('\r').unwrap_or(part);
                     match iterator.name {
-                        "git" if iterator.arguments.first().is_some_and(|arg| arg.0 == "tag") => {
-                            ctx.insert("tag", part.to_owned());
-                        }
+                        "git" => match iterator.arguments.first().map(|arg| arg.0) {
+                            Some("tag") => {
+                                ctx.insert("tag", part.to_owned());
+                            }
+                            Some("log") => {
+                                ctx.insert("ref", part.to_owned());
+                            }
+                            _ => {}
+                        },
                         "files" => {
                             ctx.insert("file", part.to_owned());
                         }
                         "constant" => {
-                            if let Some(name) = iterator.arguments[0]
-                                .0
+                            let first_argument = iterator.arguments[0].0;
+                            if let Some(name) = first_argument
                                 .strip_prefix('$')
                                 .and_then(|rest| crate::utilities::depluralise(rest))
                             {
@@ -273,16 +293,16 @@ mod evaluate {
         let mut start = 0;
         let on = &argument.0;
         let mut last_was_escape_backslash = false;
-        for (index, matched) in on.match_indices(['$', '\\']) {
+        for (idx, matched) in on.match_indices(['$', '\\', '\'', '"']) {
             let skip = last_was_escape_backslash && matched == "\\";
             last_was_escape_backslash = false;
             if skip {
                 continue;
             }
 
-            result += &on[start..index];
+            result += &on[start..idx];
             if let "$" = matched {
-                let rest = &on[(index + 1)..];
+                let rest = &on[(idx + 1)..];
                 let reference = rest
                     .split_once(|chr: char| !(chr.is_alphanumeric() || matches!(chr, '_')))
                     .map_or(rest, |(rest, _)| rest);
@@ -295,9 +315,9 @@ mod evaluate {
                 } else {
                     eprintln!("shell-language: Could not find reference {reference}");
                 }
-                start = index + 1 + reference.len();
+                start = idx + 1 + reference.len();
             } else if let "\\" = matched {
-                match on[(index + 1)..].chars().next() {
+                match on[(idx + 1)..].chars().next() {
                     Some('n') => {
                         result += Cow::Borrowed("\n");
                     }
@@ -311,14 +331,22 @@ mod evaluate {
                         last_was_escape_backslash = true;
                         result += Cow::Borrowed("\\");
                     }
-                    Some('\"') => {
+                    Some('"') => {
                         result += Cow::Borrowed("\"");
+                    }
+                    Some('\'') => {
+                        result += Cow::Borrowed("'");
                     }
                     character => {
                         eprintln!("unknown escape {character:?}");
                     }
                 }
-                start = index + 2;
+                start = idx + 2;
+            } else if let "\"" | "'" = matched {
+                let skip = on[..idx].is_empty()
+                    || on[..idx].ends_with(&['=', '\\'])
+                    || on[idx..][1..].is_empty();
+                start = if skip { idx + 1 } else { idx };
             } else {
                 unreachable!("matched '{matched}'");
             }
@@ -564,9 +592,10 @@ mod evaluate {
             }
             "replace" => {
                 let mut arguments = command.arguments.iter();
-                let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                let from: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                let to: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let item: &str = &evaluate_argument(arguments.next().expect("no item"), ctx);
+                let from: &str =
+                    &evaluate_argument(arguments.next().expect("no item to replace"), ctx);
+                let to: &str = &evaluate_argument(arguments.next().expect("no replacer"), ctx);
                 (item.replace(from, to), None)
             }
             "concatenate" => {
@@ -574,11 +603,11 @@ mod evaluate {
 
                 let mut s = String::new();
                 for argument in &command.arguments {
-                    if !s.is_empty() {
-                        writeln!(&mut s).unwrap();
-                    }
                     let argument = evaluate_argument(argument, ctx);
                     if !argument.is_empty() {
+                        if !s.is_empty() {
+                            writeln!(&mut s).unwrap();
+                        }
                         write!(&mut s, "{argument}").unwrap();
                     }
                 }
@@ -592,11 +621,11 @@ mod evaluate {
                 let mut arguments = command.arguments.iter();
                 let separator: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 for argument in arguments {
-                    if !s.is_empty() {
-                        write!(&mut s, "{separator}").unwrap();
-                    }
                     let argument = evaluate_argument(argument, ctx);
                     if !argument.is_empty() {
+                        if !s.is_empty() {
+                            write!(&mut s, "{separator}").unwrap();
+                        }
                         write!(&mut s, "{argument}").unwrap();
                     }
                 }
@@ -619,7 +648,10 @@ mod evaluate {
                         after.to_owned()
                     }
                 } else {
-                    String::new()
+                    arguments
+                        .next()
+                        .map(|default| evaluate_argument(default, ctx).into_owned())
+                        .unwrap_or_default()
                 };
                 (out, None)
             }
@@ -738,20 +770,35 @@ mod evaluate {
                 let mut arguments = command.arguments.iter();
                 let first_argument = arguments.next().unwrap();
                 let second_argument = arguments.next().unwrap();
-                let third_argument = arguments.next().unwrap();
+                let then = arguments.next().unwrap();
                 let equal = evaluate_argument(first_argument, ctx)
                     == evaluate_argument(second_argument, ctx);
                 let out = if equal {
-                    evaluate_argument(third_argument, ctx)
+                    evaluate_argument(then, ctx).into_owned()
                 } else {
-                    let fourth_argument = arguments.next();
-                    if let Some(fourth_argument) = fourth_argument {
-                        evaluate_argument(fourth_argument, ctx)
-                    } else {
-                        Cow::Borrowed("")
-                    }
+                    arguments
+                        .next()
+                        .map(|r#else| evaluate_argument(r#else, ctx).into_owned())
+                        .unwrap_or_default()
                 };
-                (out.into_owned(), None)
+                (out, None)
+            }
+            "if_contains" => {
+                let mut arguments = command.arguments.iter();
+                let item = arguments.next().unwrap();
+                let substring = arguments.next().unwrap();
+                let then = arguments.next().unwrap();
+                let contains =
+                    evaluate_argument(item, ctx).contains(&*evaluate_argument(substring, ctx));
+                let out = if contains {
+                    evaluate_argument(then, ctx).into_owned()
+                } else {
+                    arguments
+                        .next()
+                        .map(|r#else| evaluate_argument(r#else, ctx).into_owned())
+                        .unwrap_or_default()
+                };
+                (out, None)
             }
             // TODO WIP. "known programs"
             command_name @ ("cargo" | "git" | "gh" | "hyperfine" | "jq" | "yq" | "node"
@@ -930,7 +977,8 @@ mod interactive {
         pub fn parse_and_evaluate_command(&mut self, command: String) {
             // TODO can we append it somewhere, that doesn't move. Pinned?
             let command = String::leak(command);
-            let statement = parse_statement(command, &mut "".lines()).expect("no statement");
+            let statement =
+                parse_statement(command, &mut "".lines().peekable(), 0).expect("no statement");
             evaluate_statement(&statement, &mut self.context);
         }
     }
