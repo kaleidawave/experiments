@@ -6,15 +6,14 @@ fn main() {
     let language = "rust";
     eprintln!("loading {language}");
     let module = format!("languages/{language}.dll");
-    let function = format!("tree_sitter_{language}");
-    let language_fn: LanguageFn = unsafe {
-        let lib = Library::new(&module).unwrap();
-        let function = lib
-            .get::<Symbol<extern "C" fn() -> *const ()>>(function.as_bytes())
-            .unwrap();
-        LanguageFn::from_raw(**function)
+    let function_name = format!("tree_sitter_{language}");
+    let lib = unsafe { Library::new(&module).unwrap() };
+    let function = unsafe {
+        lib.get::<Symbol<extern "C" fn() -> *const ()>>(function_name.as_bytes())
+            .unwrap()
     };
-    eprintln!("loaded {function} from {module}");
+    let language_fn = unsafe { LanguageFn::from_raw(**function) };
+    eprintln!("loaded {function_name} from {module}");
 
     let mut parser = Parser::new();
     parser
