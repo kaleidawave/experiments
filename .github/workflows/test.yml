@@ -3,22 +3,47 @@ name: Tree sitter example
 on:
   push
 
+env:
+  CARGO_TERM_COLOR: always
+  CACHE_PATHS: |
+    ~/.cargo/bin/
+    ~/.cargo/registry/index/
+    ~/.cargo/registry/cache/
+    ~/.cargo/git/db/
+    **/target
+
 jobs:
   run-example-tree-sitter:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+            extension: dll
+          - os: ubuntu-latest
+            extension: so
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - uses: brndnmtthws/rust-action-cargo-binstall@v1
         with:
           packages: tree-sitter-cli
 
       - name: Run setup
-        run: bash test.sh
+        run: |
+          git clone https://github.com/tree-sitter/tree-sitter-rust tree-sitter-rust
+          
+          mkdir languages
+          tree-sitter build tree-sitter-rust -o languages/rust.${{ matrix.extension }}
+
+          cargo run
+        shell: bash
         working-directory: language-tool
