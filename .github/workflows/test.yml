@@ -19,8 +19,10 @@ jobs:
         os: [windows-latest, ubuntu-latest]
         include:
           - os: windows-latest
+            prefix: ""
             extension: dll
           - os: ubuntu-latest
+            prefix: "lib"
             extension: so
       fail-fast: false
 
@@ -28,7 +30,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache
         with:
           path: ${{ env.CACHE_PATHS }}
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
@@ -42,8 +45,14 @@ jobs:
           git clone https://github.com/tree-sitter/tree-sitter-rust tree-sitter-rust
           
           mkdir languages
-          tree-sitter build tree-sitter-rust -o languages/rust.${{ matrix.extension }}
+          tree-sitter build tree-sitter-rust -o languages/${{ matrix.prefix }}rust.${{ matrix.extension }}
 
           cargo run
         shell: bash
         working-directory: language-tool
+
+      - uses: actions/cache/save@v4
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        with:
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+          path: ${{ env.CACHE_PATHS }}
