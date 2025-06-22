@@ -31,12 +31,12 @@ enum X {
 let x = X::None;
 "
     .trim();
-
-    let list = scan(source_code, &mut parser);
     println!("--- source_code ---\n{source_code}\n---");
-    for item in list {
-        println!("{item:?}");
-    }
+
+    let transformed = Renamer::new("X".into(), "ABC".into()).run(source_code, &mut parser);
+
+    println!();
+    println!("--- transformed ---\n{transformed}\n---");
 }
 
 #[derive(Debug)]
@@ -46,19 +46,66 @@ struct Item<'a> {
     pub range: (usize, usize),
 }
 
-fn scan<'a>(source_code: &'a str, parser: &mut Parser) -> Vec<Item<'a>> {
+trait Scanner<'a> {
+    fn recieve_item(&mut self, item: Item<'a>);
+}
+
+struct Renamer {
+    from: String,
+    to: String,
+}
+
+impl Renamer {
+    pub fn new(from: String, to: String) -> Self {
+        Self { from, to }
+    }
+
+    pub fn run(&self, on: &str, parser: &mut Parser) -> String {
+        struct Finder<'f> {
+            from: &'f str,
+            matches: Vec<(usize, usize)>,
+        }
+
+        impl<'a, 'f> Scanner<'a> for Finder<'f> {
+            fn recieve_item(&mut self, item: Item<'a>) {
+                if item.grammar_name == "identifier" && item.source == self.from {
+                    self.matches.push(item.range)
+                }
+            }
+        }
+
+        let mut scanner = Finder {
+            from: &self.from,
+            matches: Vec::new(),
+        };
+        scan(on, parser, &mut scanner);
+
+        let mut last = 0;
+        // TODO `Cow`
+        let mut s = String::new();
+        for (l, r) in scanner.matches.into_iter() {
+            s.push_str(&on[last..l]);
+            s.push_str(&self.to);
+            last = r;
+        }
+        s.push_str(&on[last..]);
+        s
+    }
+}
+
+fn scan<'a>(source_code: &'a str, parser: &mut Parser, scanner: &mut impl Scanner<'a>) {
     fn flat_walk<'a, 's>(
         source_code: &'s str,
         node: tree_sitter::Node<'a>,
-        list: &mut Vec<Item<'s>>,
+        scanner: &mut impl Scanner<'s>,
     ) {
         if node.child_count() > 0 {
             let mut walker = node.walk();
             for child in node.children(&mut walker) {
-                flat_walk(source_code, child, list);
+                flat_walk(source_code, child, scanner);
             }
         } else {
-            list.push(Item {
+            scanner.recieve_item(Item {
                 grammar_name: node.grammar_name(),
                 source: &source_code[node.start_byte()..node.end_byte()],
                 range: (node.start_byte(), node.end_byte()),
@@ -68,8 +115,5 @@ fn scan<'a>(source_code: &'a str, parser: &mut Parser) -> Vec<Item<'a>> {
 
     let tree = parser.parse(source_code, None).unwrap();
     let root = tree.root_node();
-
-    let mut list = Vec::new();
-    flat_walk(source_code, root, &mut list);
-    list
+    flat_walk(source_code, root, scanner);
 }
