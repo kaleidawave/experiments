@@ -5,7 +5,12 @@ on:
 
 jobs:
   run-example-tree-sitter:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+      fail-fast: false
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
