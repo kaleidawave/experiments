@@ -332,17 +332,26 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
         "ee" | "ensure_executable" => {
             #[cfg(unix)]
             let result: std::io::Result<()> = {
+                use std::fs::{metadata, set_permissions};
                 use std::os::unix::fs::PermissionsExt;
-                
+                use std::path::Path;
+
                 let mut arguments = command.arguments.iter();
                 let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-                let path: &std::path::Path = std::path::Path::new(path);
-
-                crate::utilities::visit_paths(path, &|file_path| {
-                    let res =
-                        std::fs::set_permissions(file_path, std::fs::Permissions::from_mode(654));
+                crate::utilities::visit_paths(Path::new(path), &|file_path| {
+                    let metadata = metadata(&path).unwrap();
+                    let mut permissions = metadata.permissions();
+                    let mode = permissions.mode();
+                    // Add user/group/other execute bits (0111)
+                    permissions.set_mode(mode | 0o111);
+                    let res = set_permissions(file_path, permissions);
                     if res.is_err() {
                         eprintln!("Error setting permission {res:?}");
+                    } else {
+                        eprintln!(
+                            "Made {file_path} executable",
+                            file_path = file_path.display()
+                        );
                     }
                 })
             };
