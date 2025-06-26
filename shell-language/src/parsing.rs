@@ -16,6 +16,10 @@ pub mod ast {
             iterator: Command<'a>,
             statements: Vec<Statement<'a>>,
         },
+        If {
+            condition: Command<'a>,
+            statements: Vec<Statement<'a>>,
+        },
         Command(Command<'a>),
     }
 
@@ -35,6 +39,7 @@ pub mod parsing {
 
     pub type Lines<'a> = std::iter::Peekable<std::str::Lines<'a>>;
 
+    #[must_use]
     pub fn parse_program(on: &str) -> Program<'_> {
         let mut stmts: Vec<Statement> = Vec::new();
 
@@ -47,6 +52,7 @@ pub mod parsing {
         Program(stmts)
     }
 
+    #[must_use]
     pub fn strip_ident(mut line: &str, upto: usize) -> &str {
         for _ in 0..upto {
             line = line
@@ -68,18 +74,12 @@ pub mod parsing {
             None
         } else if let Some(rest) = line.trim_start().strip_prefix("let ") {
             let (name, rest) = rest.split_once(" = ").expect("let declaration needs ' = '");
-			let value = parse_command(rest);
-            Some(Statement::Declaration {
-                name,
-                value,
-            })
+            let value = parse_command(rest);
+            Some(Statement::Declaration { name, value })
         } else if let Some(rest) = line.trim_start().strip_prefix("set ") {
             let (name, rest) = rest.split_once(" = ").expect("set declaration needs ' = '");
-			let value = parse_command(rest);
-            Some(Statement::Assignment {
-                name,
-                value,
-            })
+            let value = parse_command(rest);
+            Some(Statement::Assignment { name, value })
         } else if let Some(inner) = line
             .trim_start()
             .strip_prefix("for ")
@@ -96,7 +96,7 @@ pub mod parsing {
                     .peek()
                     .map(|line| strip_ident(line, depth))
                     .is_some_and(|line: &str| {
-                        line.is_empty() || line.starts_with("\t") || line.starts_with("  ")
+                        line.is_empty() || line.starts_with('\t') || line.starts_with("  ")
                     });
                 if !r#continue {
                     break;
@@ -104,6 +104,28 @@ pub mod parsing {
             }
             Some(Statement::For {
                 iterator,
+                statements,
+            })
+        } else if let Some(inner) = line.trim_start().strip_prefix("if ") {
+            let condition = parse_command(inner);
+            let mut statements = Vec::new();
+            loop {
+                let line = lines.next().expect("expected if body");
+                if let Some(stmt) = parse_statement(line, lines, depth + 1) {
+                    statements.push(stmt);
+                }
+                let r#continue = lines
+                    .peek()
+                    .map(|line| strip_ident(line, depth))
+                    .is_some_and(|line: &str| {
+                        line.is_empty() || line.starts_with('\t') || line.starts_with("  ")
+                    });
+                if !r#continue {
+                    break;
+                }
+            }
+            Some(Statement::If {
+                condition,
                 statements,
             })
         } else {

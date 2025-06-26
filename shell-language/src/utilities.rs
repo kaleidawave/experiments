@@ -1,5 +1,6 @@
 use std::{env, fs, path::Path};
 
+#[must_use]
 pub fn get_environment_variable(name: &str) -> Option<String> {
     env::vars().find_map(|(n, v)| (n == name).then_some(v))
 }
@@ -35,10 +36,12 @@ pub fn move_copy_file(
 }
 
 /// Reverse <https://howtospell.co.uk/y-to-ies-or-s-plural-rule>
+#[must_use]
 pub fn depluralise(on: &str) -> Option<&str> {
     on.strip_suffix("ies").or_else(|| on.strip_suffix("s"))
 }
 
+#[must_use]
 pub fn run_command(
     command: String,
     args: Vec<String>,
@@ -84,7 +87,7 @@ pub fn run_command(
         .stderr(stderr)
         .envs(env)
         .spawn()
-        .expect("Failed to spawn command");
+        .expect("Failed to spawn command in shell-language");
 
     if let Some(mut reader) = reader {
         let mut output = String::new();
@@ -99,6 +102,7 @@ pub fn run_command(
     }
 }
 
+#[must_use]
 pub fn separate_numbers(whole_part: &str) -> String {
     let n: Vec<char> = whole_part.chars().collect();
     let mut s = String::new();
@@ -112,6 +116,7 @@ pub fn separate_numbers(whole_part: &str) -> String {
     s
 }
 
+#[must_use]
 pub fn separate_numbers_fract(fract_part: &str) -> String {
     let n: Vec<char> = fract_part.chars().collect();
     let mut s = String::new();
@@ -123,4 +128,29 @@ pub fn separate_numbers_fract(fract_part: &str) -> String {
         s.push_str(&chunk);
     }
     s
+}
+
+pub fn visit_paths(path: &Path, cb: &dyn Fn(&Path)) -> std::io::Result<()> {
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                visit_paths(&path, cb)?;
+            } else {
+                cb(&path);
+            }
+        }
+        Ok(())
+    } else if path.is_file() {
+        cb(path);
+        Ok(())
+    } else if path.exists() {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Could not find path",
+        ))
+    }
 }

@@ -24,14 +24,14 @@ pub fn evaluate_statement<'a>(statement: &Statement<'a>, ctx: &mut Context<'a>) 
         }
         Statement::Assignment { name, value } => {
             let (value, exit_code) = evaluate_command(value, ctx);
-			match ctx.entry(name) {
-				Entry::Occupied(mut existing) => {
-					existing.insert(value);
-				}
-				Entry::Vacant(_) => {
-					panic!("set requires variable {name:?} to be defined")
-				}
-			};
+            match ctx.entry(name) {
+                Entry::Occupied(mut existing) => {
+                    existing.insert(value);
+                }
+                Entry::Vacant(_) => {
+                    panic!("set requires variable {name:?} to be defined")
+                }
+            }
             if let Some(exit_code) = exit_code {
                 ctx.insert("exit_code", exit_code.to_string());
             }
@@ -51,11 +51,11 @@ pub fn evaluate_statement<'a>(statement: &Statement<'a>, ctx: &mut Context<'a>) 
                 ctx.insert("exit_code", exit_code.to_string());
             }
 
-			ctx.insert("break", "".to_owned());
+            ctx.insert("break", String::new());
             for part in result.trim_end().split('\n') {
-				if ctx.get("break").expect("no 'break' variable") == "break" {
-					break;
-				}
+                if ctx.get("break").expect("no 'break' variable") == "break" {
+                    break;
+                }
 
                 let part = part.strip_suffix('\r').unwrap_or(part);
                 match iterator.name {
@@ -83,6 +83,21 @@ pub fn evaluate_statement<'a>(statement: &Statement<'a>, ctx: &mut Context<'a>) 
                     _ => {}
                 }
                 ctx.insert("iter", part.to_owned());
+                for statement in statements {
+                    evaluate_statement(statement, ctx);
+                }
+            }
+        }
+        Statement::If {
+            condition,
+            statements,
+        } => {
+            let (result, exit_code) = evaluate_command(condition, ctx);
+            if let Some(exit_code) = exit_code {
+                ctx.insert("exit_code", exit_code.to_string());
+            }
+
+            if !result.is_empty() {
                 for statement in statements {
                     evaluate_statement(statement, ctx);
                 }
@@ -148,7 +163,7 @@ fn evaluate_argument<'a>(argument: &Argument<'a>, ctx: &'a Context<'a>) -> Cow<'
             start = idx + 2;
         } else if let "\"" | "'" = matched {
             let skip = on[..idx].is_empty()
-                || on[..idx].ends_with(&['=', '\\'])
+                || on[..idx].ends_with(['=', '\\'])
                 || on[idx..][1..].is_empty();
             start = if skip { idx + 1 } else { idx };
         } else {
@@ -160,6 +175,7 @@ fn evaluate_argument<'a>(argument: &Argument<'a>, ctx: &'a Context<'a>) -> Cow<'
 }
 
 #[allow(clippy::too_many_lines)]
+#[must_use]
 pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option<i32>) {
     match command.name {
         // Command line printing
@@ -312,6 +328,30 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
                 (String::default(), Some(1))
             }
         }
+        // When downloading executables it loses information, this corrects
+        "ee" | "ensure_executable" => {
+            #[cfg(unix)]
+            let result: std::io::Result<()> = {
+                let mut arguments = command.arguments.iter();
+                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let path: &std::path::Path = std::path::Path::new(path);
+
+                crate::utilities::visit_paths(path, &|file_path| {
+                    std::fs::set_permissions(file_path, std::fs::Permissions::from(654))?;
+                })
+            };
+
+            #[cfg(not(unix))]
+            let result: std::io::Result<()> = Ok(());
+
+            match result {
+                Ok(()) => (String::default(), Some(0)),
+                Err(err) => {
+                    eprintln!("Ensuring executables {err:?}");
+                    (String::default(), Some(1))
+                }
+            }
+        }
         // Scan files
         "files" => {
             let pattern = if let Some(arg) = command.arguments.first() {
@@ -393,19 +433,25 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
             let to: &str = &evaluate_argument(arguments.next().expect("no replacer"), ctx);
             (item.replace(from, to), None)
         }
+        "debug" => {
+            let mut arguments = command.arguments.iter();
+            let item: &str = &evaluate_argument(arguments.next().expect("no item"), ctx);
+            (format!("{item:?}"), None)
+        }
         "split" => {
             use std::fmt::Write;
 
-			let mut arguments = command.arguments.iter();
+            let mut arguments = command.arguments.iter();
             let item: &str = &evaluate_argument(arguments.next().expect("no item"), ctx);
-            let splitter: &str = &evaluate_argument(arguments.next().expect("no splitter to replace"), ctx);
+            let splitter: &str =
+                &evaluate_argument(arguments.next().expect("no splitter to replace"), ctx);
 
-			let mut s = String::default();
-			for item in item.split(splitter) {
-				if !s.is_empty() {
-					writeln!(&mut s).unwrap();
-				}
-				write!(&mut s, "{item}").unwrap();
+            let mut s = String::default();
+            for item in item.split(splitter) {
+                if !s.is_empty() {
+                    writeln!(&mut s).unwrap();
+                }
+                write!(&mut s, "{item}").unwrap();
             }
             (s, None)
         }
