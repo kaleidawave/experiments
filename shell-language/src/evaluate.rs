@@ -332,6 +332,8 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
         "ee" | "ensure_executable" => {
             #[cfg(unix)]
             let result: std::io::Result<()> = {
+                use std::os::unix::fs::PermissionsExt;
+                
                 let mut arguments = command.arguments.iter();
                 let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
                 let path: &std::path::Path = std::path::Path::new(path);
