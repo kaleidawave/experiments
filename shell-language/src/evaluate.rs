@@ -337,7 +337,11 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
                 let path: &std::path::Path = std::path::Path::new(path);
 
                 crate::utilities::visit_paths(path, &|file_path| {
-                    std::fs::set_permissions(file_path, std::fs::Permissions::from(654))?;
+                    let res =
+                        std::fs::set_permissions(file_path, std::fs::Permissions::from_mode(654));
+                    if res.is_err() {
+                        eprintln!("Error setting permission {res:?}");
+                    }
                 })
             };
 
