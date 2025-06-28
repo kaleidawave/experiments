@@ -2,6 +2,17 @@ use libloading::{Library, Symbol, library_filename};
 use tree_sitter::{Language, Parser};
 use tree_sitter_language::LanguageFn;
 
+use language_tool::{Chain, Item, Scanner, scan};
+
+use codespan_reporting::diagnostic::{Diagnostic, Label};
+use codespan_reporting::files::SimpleFile;
+use codespan_reporting::term::{
+    self, Config,
+    termcolor::{ColorChoice, StandardStream},
+};
+
+use std::path::Path;
+
 fn main() {
     let language = "rust";
     eprintln!("loading {language}");
@@ -13,7 +24,10 @@ fn main() {
             .unwrap()
     };
     let language_fn = unsafe { LanguageFn::from_raw(**function) };
-    eprintln!("loaded {function_name} from {module}", module=module.display());
+    eprintln!(
+        "loaded {function_name} from {module}",
+        module = module.display()
+    );
 
     let mut parser = Parser::new();
     parser
@@ -22,98 +36,195 @@ fn main() {
 
     eprintln!("initiated parser");
 
-    let source_code = "
-enum X {
-    Some(Box<X>),
-    None
-}
+    let mut args = std::env::args().skip(1);
 
-let x = X::None;
-"
-    .trim();
-    println!("--- source_code ---\n{source_code}\n---");
-
-    let transformed = Renamer::new("X".into(), "ABC".into()).run(source_code, &mut parser);
-
-    println!();
-    println!("--- transformed ---\n{transformed}\n---");
-}
-
-#[derive(Debug)]
-struct Item<'a> {
-    pub grammar_name: &'static str,
-    pub source: &'a str,
-    pub range: (usize, usize),
-}
-
-trait Scanner<'a> {
-    fn recieve_item(&mut self, item: Item<'a>);
-}
-
-struct Renamer {
-    from: String,
-    to: String,
-}
-
-impl Renamer {
-    pub fn new(from: String, to: String) -> Self {
-        Self { from, to }
-    }
-
-    pub fn run(&self, on: &str, parser: &mut Parser) -> String {
-        struct Finder<'f> {
-            from: &'f str,
-            matches: Vec<(usize, usize)>,
+    let first = args.next();
+    match first.as_deref() {
+        None | Some("info" | "--help") => {
+            eprintln!("The language-tool")
         }
+        Some("debug") => {
+            let path = args.next().expect("path");
+            // let arg = args.next().expect("path or content");
+            // let source_code = if arg.contains('\n') || !std::path::Path::new(&arg).exists() {
+            //     arg
+            // } else {
+            //     std::fs::read_to_string(arg).unwrap()
+            // };
 
-        impl<'a, 'f> Scanner<'a> for Finder<'f> {
-            fn recieve_item(&mut self, item: Item<'a>) {
-                if item.grammar_name == "identifier" && item.source == self.from {
-                    self.matches.push(item.range)
-                }
-            }
+            visit_files(Path::new(&path), &mut |path| {
+                eprintln!("--- {path} ---", path = path.display().to_string());
+                let content = std::fs::read_to_string(&path).unwrap();
+
+                let file = SimpleFile::new(path.display().to_string(), content.clone());
+                let writer = StandardStream::stderr(ColorChoice::Always);
+                let config = Config::default();
+
+                let mut debugger = Debugger {
+                    file,
+                    writer,
+                    config,
+                };
+
+                scan(&content, &mut parser, &mut debugger);
+            })
+            .expect("Could not visit files");
         }
-
-        let mut scanner = Finder {
-            from: &self.from,
-            matches: Vec::new(),
-        };
-        scan(on, parser, &mut scanner);
-
-        let mut last = 0;
-        // TODO `Cow`
-        let mut s = String::new();
-        for (l, r) in scanner.matches.into_iter() {
-            s.push_str(&on[last..l]);
-            s.push_str(&self.to);
-            last = r;
+        Some(command) => {
+            eprintln!("Unknown command {command:?}");
         }
-        s.push_str(&on[last..]);
-        s
     }
 }
 
-fn scan<'a>(source_code: &'a str, parser: &mut Parser, scanner: &mut impl Scanner<'a>) {
-    fn flat_walk<'a, 's>(
-        source_code: &'s str,
-        node: tree_sitter::Node<'a>,
-        scanner: &mut impl Scanner<'s>,
-    ) {
-        if node.child_count() > 0 {
-            let mut walker = node.walk();
-            for child in node.children(&mut walker) {
-                flat_walk(source_code, child, scanner);
-            }
+struct Debugger {
+    file: SimpleFile<String, String>,
+    writer: StandardStream,
+    config: Config,
+}
+
+impl<'s> Scanner<'s> for Debugger {
+    fn scan_tree<'a>(&mut self, item: Item<'s, 'a>, _chain: &Chain) -> bool {
+        if let "enum_item" | "struct_item" = item.grammar_name() {
+            let name = item.raw_node.child_by_field_name("name").unwrap();
+            let name = &item.total_source[name.start_byte()..name.end_byte()];
+            let label = Label::primary((), item.range()).with_message(format!("Found {name}"));
+            let diagnostic = Diagnostic::note().with_labels(vec![label]);
+            term::emit(
+                &mut self.writer.lock(),
+                &self.config,
+                &self.file,
+                &diagnostic,
+            )
+            .unwrap();
+            true
         } else {
-            scanner.recieve_item(Item {
-                grammar_name: node.grammar_name(),
-                source: &source_code[node.start_byte()..node.end_byte()],
-                range: (node.start_byte(), node.end_byte()),
-            });
+            false
         }
     }
 
-    let tree = parser.parse(source_code, None).unwrap();
-    let root = tree.root_node();
-    flat_walk(source_code, root, scanner);
+    fn scan_leaf<'a>(&mut self, _item: Item<'s, 'a>, _chain: &Chain) {}
+    //     if item.grammar_name() == "identifier" {
+    //         let diagnostic = Diagnostic::error().with_labels(vec![
+    //             Label::primary((), item.range())
+    //                 .with_message(format!("Found tag {item:?}", item = item.source())),
+    //         ]);
+    //         term::emit(
+    //             &mut self.writer.lock(),
+    //             &self.config,
+    //             &self.file,
+    //             &diagnostic,
+    //         ).unwrap();
+    //     }
+    // }
+}
+
+// struct Debugger;
+
+// impl<'s> Scanner<'s> for Debugger {
+//     fn scan_tree<'a>(&mut self, item: Item<'s, 'a>, chain: &Chain) -> bool {
+//         let grammar_name = item.grammar_name();
+//         // if grammar_name == "scoped_type_identifier" {
+//         //     let mut walker = item.raw_node.walk();
+//         //     if let Some(struct_parent) = item
+//         //         .raw_node
+//         //         .parent()
+//         //         .and_then(|node| (node.grammar_name() == "struct_expression").then_some(node))
+//         //     {
+//         //         for child in item.raw_node.children(&mut walker) {
+//         //             if child.grammar_name() == "identifier" {
+//         //                 let name = &item.total_source[child.start_byte()..child.end_byte()];
+//         //                 eprint!("::{name}");
+//         //             }
+//         //         }
+//         //         eprintln!();
+//         //         let field_initializer = struct_parent.child_by_field_name("body");
+//         //         if let Some(field_initializer) = field_initializer {
+//         //             let item=&item.total_source[field_initializer.start_byte()..field_initializer.end_byte()];
+//         //             eprintln!("{item} (wrap in Box::new)");
+//         //         }
+//         //     }
+//         //     true
+//         // } else if grammar_name == "enum_variant" {
+//         //     let variant_name = item.raw_node.child_by_field_name("name").unwrap();
+//         //     let body = item.raw_node.child_by_field_name("body").unwrap();
+
+//         //     let parent = item.raw_node.parent().unwrap().parent().unwrap();
+//         //     let enum_name = parent.child_by_field_name("name").unwrap();
+
+//         //     eprintln!(
+//         //         "enum {enum_name} variant {variant_name} with {body}",
+//         //         enum_name = &item.total_source[enum_name.start_byte()..enum_name.end_byte()],
+//         //         variant_name = &item.total_source[variant_name.start_byte()..variant_name.end_byte()],
+//         //         body = &item.total_source[body.start_byte()..body.end_byte()]
+//         //     );
+//         //     true
+//         // } else {
+//         //     false
+//         // }
+//     }
+
+//     fn scan_leaf<'a>(&mut self, _item: Item<'s, 'a>, _chain: &Chain) {
+//         // if item.grammar_name() == "identifier" {
+//         //     let identifier = item.source();
+//         //     eprintln!("{chain:?} -> {identifier}");
+//         //     let ctx = chain.last().unwrap().0;
+//         //     match ctx {
+//         //         "enum_variant" => {
+//         //             let range = chain.last().unwrap().1.clone();
+//         //             let source = &item.total_source[range];
+//         //             eprintln!("-> {source:?}");
+//         //             // if let Some(next) = item.next_sibling() {
+//         //             // } else {
+//         //             //     eprintln!("no next")
+//         //             // }
+//         //         }
+//         //         "scoped_type_identifier" => {
+//         //             // if identifier.starts_with(|chr: char| chr.is_uppercase()) {
+//         //             //     let braced_enum_member = item.raw_node.next_sibling().is_some_and(|node| {
+//         //             //         node.grammar_name() == "::"
+//         //             //             && node.next_sibling().is_some_and(|node| {
+//         //             //                 node.grammar_name() == "identifier"
+//         //             //                     && &item.total_source[node.range().start_byte..])
+//         //             //                         .starts_with(|chr: char| chr.is_uppercase())
+//         //             //             })
+//         //             //     }));
+//         //             //     // TODO want range
+//         //             //     if braced_enum_member {
+//         //             //         eprintln!("FOUND BRACED ENUM MEMBER {identifier}")
+//         //             //     }
+//         //             // }
+//         //         }
+//         //         _ => {}
+//         //     }
+//         // }
+//     }
+// }
+
+pub fn visit_files(
+    path: &std::path::Path,
+    cb: &mut dyn FnMut(&std::path::Path),
+) -> std::io::Result<()> {
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                visit_files(&path, cb)?;
+            } else {
+                cb(&path);
+            }
+        }
+    } else if path.is_file() {
+        let skip = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_none_or(|ext| !matches!(ext, "rs"));
+        if !skip {
+            cb(&path)
+        }
+    } else if path.is_symlink() {
+        let path = std::fs::read_link(path)?;
+        visit_files(&path, cb)?;
+    }
+    Ok(())
 }
