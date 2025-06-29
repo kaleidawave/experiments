@@ -15,6 +15,8 @@ path = "src/main.rs"
 [dependencies]
 simple-markdown-parser = { git = "https://github.com/kaleidawave/simple-markdown-parser", version = "0.0.7", branch = "improvements" }
 pretty_assertions = "1.4.1"
+crossterm = "0.29.0"
+colored = "3.0.0"
 
 [lints.clippy]
 pedantic = "warn"

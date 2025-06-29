@@ -1,48 +1,76 @@
+pub mod utilities;
+
+use utilities::{
+    commands, filter, is_equal_ignore_new_line_sequence, run_in_alternative_display,
+    visit_specification_files,
+};
+
 use simple_markdown_parser::{CodeBlock, MarkdownElement, parse};
-use std::path::Path;
+use std::io::{self, Write};
+use std::process;
 
-pub trait Runner {
-    /// # Errors
-    /// if test failed on runner, return a `Err` with some message about why it failed
-    fn run(&mut self, test: &Test) -> Result<(), String>;
-}
-
-#[derive(Debug, Default)]
-pub struct Configuration {
-    pub keep_alive_stdin_stdout: bool,
-    pub ignore_exit_code: bool,
-}
+use colored::Colorize as Colourise;
 
 /// TODO vec of vecs
 #[derive(Debug, Default)]
 pub struct Test {
-    name: String,
+    pub section: String,
+    pub name: String,
     // options: (),
-    case: String,
-    output: Option<String>,
+    pub case: String,
+    pub expected: Option<String>,
 }
 
-fn get_tests(file: &Path) -> Vec<Test> {
+pub trait Runner: Sized {
+    /// Returns `Ok(*output*)`
+    /// # Errors
+    /// if test failed on runner, return a `Err` with some message about why it failed
+    fn run(&mut self, test: &Test) -> Result<String, String>;
+
+    /// Cleanup
+    fn close(self) {}
+}
+
+#[derive(Default)]
+pub struct RunConfiguration {
+    pub interactive: bool,
+    pub dry_run: bool,
+    pub lists_to_code_block: bool,
+    pub filter: Option<Box<dyn filter::Filter>>,
+}
+
+#[must_use]
+pub fn extract_tests(content: &str, lists_to_code_block: bool) -> Vec<Test> {
     let mut tests: Vec<Test> = Vec::new();
     let mut current_test = Test::default();
-    let content = std::fs::read_to_string(file).unwrap();
-    let result = parse::<()>(&content, |element| {
+    let mut section = String::new();
+
+    let result = parse::<()>(content, |element| {
         if let MarkdownElement::Heading { level, content } = element {
             if level >= 3 {
                 if !current_test.case.is_empty() {
                     tests.push(std::mem::take(&mut current_test));
                 }
                 current_test.name = content.no_decoration();
+                section.clone_into(&mut current_test.section);
+            } else {
+                section = content.no_decoration();
             }
         } else if let MarkdownElement::Paragraph(_content) = element {
             // if content.0.ends_with("`top_level_separator = Some(\"\\n\")`") {
             //     current_test.options.top_level_separator = Some("\n");
             // }
+        } else if let MarkdownElement::List(list) = element
+            && lists_to_code_block
+        {
+            if !current_test.case.is_empty() && current_test.expected.is_none() {
+                let _ = current_test.expected.insert(list.0.0.to_owned());
+            }
         } else if let MarkdownElement::CodeBlock(CodeBlock { code, .. }) = element {
             if current_test.case.is_empty() {
                 code.clone_into(&mut current_test.case);
-            } else if current_test.output.is_none() {
-                let _ = current_test.output.insert(code.to_owned());
+            } else if current_test.expected.is_none() {
+                let _ = current_test.expected.insert(code.to_owned());
             } else {
                 // create a new test
                 let next_name = format!("{} *", current_test.name);
@@ -60,201 +88,478 @@ fn get_tests(file: &Path) -> Vec<Test> {
     tests
 }
 
+#[derive(Debug, Default)]
+pub struct TestResults {
+    pub count: usize,
+    pub skipped: usize,
+    pub failures: Vec<(String, String)>,
+}
+
+impl TestResults {
+    pub fn append(&mut self, mut new: TestResults) {
+        self.count += new.count;
+        self.skipped += new.skipped;
+        self.failures.append(&mut new.failures);
+    }
+}
+
+pub fn run_tests(
+    tests: &[Test],
+    runner: &mut impl Runner,
+    configuration: &RunConfiguration,
+) -> TestResults {
+    let mut results = TestResults::default();
+
+    for test in tests {
+        results.count += 1;
+        let name = &test.name;
+
+        let skip_test = configuration
+            .filter
+            .as_ref()
+            .is_some_and(|filter| filter.should_skip(&test.name));
+        if skip_test {
+            results.skipped += 1;
+        }
+
+        let result = runner.run(test);
+
+        if configuration.dry_run {
+            if !skip_test {
+                if configuration.interactive {
+                    let should_break = run_in_alternative_display(|| {
+                        match result {
+                            Ok(output) => eprintln!("Test {name}\nrecieved:\n{output}"),
+                            Err(output) => eprintln!("Test {name}\nerrored: {output}"),
+                        }
+
+                        let mut input = String::new();
+                        io::stdin()
+                            .read_line(&mut input)
+                            .expect("Failed to read line");
+
+                        matches!(input.as_str().trim(), "exit" | "e" | "quit" | "q")
+                    });
+                    if should_break {
+                        break;
+                    }
+                } else {
+                    match result {
+                        Ok(output) => eprintln!("Test {name}\nrecieved:\n{output}"),
+                        Err(output) => eprintln!("Test {name}\nerrored: {output}"),
+                    }
+                }
+            }
+        } else if skip_test {
+            println!("test {name} ... {result}", result = "skipped".blue());
+        } else {
+            let result = match result {
+                Ok(output) => {
+                    if let Some(ref expected) = test.expected {
+                        if is_equal_ignore_new_line_sequence(&output, expected) {
+                            Ok(())
+                        } else {
+                            Err(pretty_assertions::StrComparison::new(expected, &output)
+                                .to_string())
+                        }
+                    } else {
+                        Ok(())
+                    }
+                }
+                Err(err) => Err(err),
+            };
+
+            match result {
+                Ok(()) => {
+                    println!("test {name} ... {result}", result = "passed".green());
+                }
+                Err(output) => {
+                    println!("test {name} ... {result}", result = "failed".red());
+                    results.failures.push((test.name.to_string(), output));
+                }
+            }
+        }
+    }
+
+    results
+}
+
+pub fn run_tests_under_path(
+    path: &std::path::Path,
+    mut runner: impl Runner,
+    configuration: &RunConfiguration,
+) -> Result<(), usize> {
+    let now = std::time::Instant::now();
+    let mut results = TestResults::default();
+
+    let () = visit_specification_files(path, &mut |path| {
+        let content = std::fs::read_to_string(path).unwrap();
+        let tests = extract_tests(&content, configuration.lists_to_code_block);
+        let result = run_tests(&tests, &mut runner, configuration);
+        results.append(result);
+    })
+    .expect("could not visit files");
+
+    runner.close();
+
+    let TestResults {
+        count,
+        failures,
+        skipped,
+    } = results;
+
+    if configuration.dry_run {
+        Ok(())
+    } else {
+        let elapsed = now.elapsed();
+
+        if !failures.is_empty() {
+            eprintln!("\nfailures:\n");
+
+            if configuration.interactive {
+                run_in_alternative_display(|| {
+                    for (name, message) in &failures {
+                        eprintln!("test {name} failed\n{message}\n");
+                        let mut input = String::new();
+                        io::stdin()
+                            .read_line(&mut input)
+                            .expect("Failed to read line");
+
+                        if let "exit" | "e" | "quit" | "q" = input.as_str().trim() {
+                            break;
+                        }
+                    }
+                });
+            } else {
+                for (name, message) in &failures {
+                    eprintln!("test {name} failed\n{message}\n");
+                }
+            }
+
+            // TODO on single line?
+            eprintln!("\nfailures:");
+            for (name, _) in &failures {
+                eprintln!("\t{name}");
+            }
+        }
+
+        let result = if failures.is_empty() { "ok" } else { "err" };
+        let passed = count - (failures.len() + skipped);
+        let failed = failures.len();
+
+        // FUTURE will we support these?
+        let ignored = 0;
+        let measured = 0;
+        let filtered_out = skipped;
+
+        eprintln!(
+            "\ntest result: {result}. {passed} passed; {failed} failed; {ignored} ignored; {measured} measured; {filtered_out} filtered out; finished in {elapsed:?}"
+        );
+
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.len())
+        }
+    }
+}
+
+/// Runs tests with runner and configuration, printing errors to stdout and stderr.
+/// The output (should) mirror Rust's default test harness
+///
 /// # Errors
 /// returns the number of failed tests
-pub fn run_tests(file: &Path, runner: &mut impl Runner) -> Result<(), usize> {
-    let tests = get_tests(file);
+pub fn run_tests_under_content(
+    content: &str,
+    mut runner: impl Runner,
+    configuration: &RunConfiguration,
+) -> Result<(), usize> {
+    let tests = extract_tests(content, configuration.lists_to_code_block);
     let count = tests.len();
 
     println!("\nrunning {count} tests");
 
-    let mut failures: Vec<(String, String)> = Vec::default();
-
     let now = std::time::Instant::now();
 
-    for test_case in tests {
-        // fn test<F>(_name: &str, cb: F) -> Result<(), ()>
-        // where
-        //     F: FnOnce() -> () + std::marker::Send + 'static,
-        // {
-        //     let res = std::thread::spawn(cb);
-        //     match res.join() {
-        //         Ok(_) => Ok(()),
-        //         Err(_) => Err(()),
-        //     }
-        // }
+    let result = run_tests(&tests, &mut runner, configuration);
 
-        // eprintln!(
-        //     "input {name}:\n{case:?}\nrecieved:\n{out}\n---\n",
-        //     case = test_case.case
-        // );
-        // let expectation = test_case.output.trim_end();
-        // assert_eq!(out.trim_end(), expectation, "expected {out}",)
-        // });
+    let TestResults {
+        count,
+        failures,
+        skipped,
+    } = result;
 
-        let result = runner.run(&test_case);
+    runner.close();
 
-        let name = &test_case.name;
-        match result {
-            Ok(()) => {
-                println!(
-                    "test {name} ... \u{001b}\u{005b}\u{0033}\u{0032}\u{006d}\u{006f}\u{006b}\u{001b}\u{005b}\u{0033}\u{0039}\u{006d}"
-                );
+    if configuration.dry_run {
+        Ok(())
+    } else {
+        let elapsed = now.elapsed();
+
+        if !failures.is_empty() {
+            eprintln!("\nfailures:\n");
+
+            if configuration.interactive {
+                run_in_alternative_display(|| {
+                    for (name, message) in &failures {
+                        eprintln!("test {name} failed\n{message}\n");
+                        let mut input = String::new();
+                        io::stdin()
+                            .read_line(&mut input)
+                            .expect("Failed to read line");
+
+                        if let "exit" | "e" | "quit" | "q" = input.as_str().trim() {
+                            break;
+                        }
+                    }
+                });
+            } else {
+                for (name, message) in &failures {
+                    eprintln!("test {name} failed\n{message}\n");
+                }
             }
-            Err(output) => {
-                println!(
-                    "test {name} ... \u{001b}\u{005b}\u{0033}\u{0031}\u{006d}\u{0066}\u{0061}\u{0069}\u{006c}\u{0065}\u{0064}\u{001b}\u{005b}\u{0033}\u{0039}\u{006d}"
-                );
-                failures.push((test_case.name.to_string(), output));
+
+            // TODO on single line?
+            eprintln!("\nfailures:");
+            for (name, _) in &failures {
+                eprintln!("\t{name}");
             }
         }
-    }
 
-    let elapsed = now.elapsed();
-
-    if !failures.is_empty() {
-        eprintln!("\nfailures:\n");
-        for (name, message) in &failures {
-            eprintln!("test {name} failed");
-            eprintln!("{message}\n");
-        }
-        // TODO on single line?
-        eprintln!("\nfailures:");
-        for (name, _) in &failures {
-            eprintln!("\t{name}");
-        }
-    }
-
-    {
         let result = if failures.is_empty() { "ok" } else { "err" };
-        let passed = count - failures.len();
+        let passed = count - (failures.len() + skipped);
         let failed = failures.len();
-        // FUTURE will we support this?
+
+        // FUTURE will we support these?
         let ignored = 0;
         let measured = 0;
-        let filtered_out = 0;
+        let filtered_out = skipped;
+
         eprintln!(
             "\ntest result: {result}. {passed} passed; {failed} failed; {ignored} ignored; {measured} measured; {filtered_out} filtered out; finished in {elapsed:?}"
         );
-    }
 
-    if failures.is_empty() {
-        Ok(())
-    } else {
-        Err(failures.len())
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.len())
+        }
     }
 }
 
+// #[derive(Debug, Default)]
+// pub struct CommandConfiguration {
+//     pub stdin_stdout_communication: bool,
+//     pub ignore_exit_code: bool,
+// }
+
 /// TODO replace {file}
-pub struct Command {
-    name: String,
-    arguments: Vec<String>,
-    configuration: Configuration,
+pub enum Command {
+    SpawnCommand {
+        name: String,
+        arguments: Vec<String>,
+        merge_stderr: bool,
+        ignore_exit_code: bool,
+    },
+    Running {
+        out: utilities::commands::CommandOut,
+        stdin: process::ChildStdin,
+    },
 }
 
 impl Command {
     /// # Panics
     /// panics if `data` is empty
-    pub fn new(data: &str, configuration: Configuration) -> Self {
+    pub fn new(data: &str) -> Self {
         let mut iter = data.split(' ');
-        let name = iter.next().expect("no command name").to_owned();
-        let arguments = iter.map(ToOwned::to_owned).collect();
-        Command {
-            name,
-            arguments,
-            configuration,
+        let name = iter.next().expect("no command name");
+        let mut arguments: Vec<String> = iter.map(ToOwned::to_owned).collect();
+
+        let mut stdin_stdout_communication = false;
+        let mut merge_stderr = false;
+        let mut ignore_exit_code = false;
+
+        if let Some(idx) = arguments
+            .iter()
+            .position(|arg| matches!(arg.as_str(), "--stdin-stdout-communication" | "--rpc"))
+        {
+            arguments.remove(idx);
+            stdin_stdout_communication = true;
+        }
+
+        if let Some(idx) = arguments
+            .iter()
+            .position(|arg| matches!(arg.as_str(), "--merge-stderr"))
+        {
+            arguments.remove(idx);
+            merge_stderr = true;
+        }
+
+        if let Some(idx) = arguments
+            .iter()
+            .position(|arg| matches!(arg.as_str(), "--ignore-exit-code"))
+        {
+            arguments.remove(idx);
+            ignore_exit_code = true;
+        }
+
+        if stdin_stdout_communication {
+            let mut command = process::Command::new(name);
+            command.stdin(process::Stdio::piped());
+            command.args(arguments);
+
+            let mut out = commands::spawn_command(command, merge_stderr).unwrap();
+
+            let child = out.get_child();
+            let stdin = child.stdin.take().expect("Failed to open stdin");
+
+            std::thread::sleep(std::time::Duration::from_millis(100));
+
+            if let Ok(Some(status)) = child.try_wait() {
+                panic!("exited with: {status}");
+            }
+
+            // std::thread::scope(|s| {
+            //     // TODO abstract
+            //     let started = std::sync::atomic::AtomicBool::new(false);
+
+            //     s.spawn(|| {
+            //         std::thread::sleep(std::time::Duration::from_secs(10));
+            //         if !started.load(std::sync::atomic::Ordering::Relaxed) {
+            //             eprintln!("program has not yielded 'start'");
+            //         }
+            //     });
+
+            // Any prelude messages
+            let (stdout, stderr) = out.read_until(|line| matches!(line, "start")).unwrap();
+            // started.store(true, std::sync::atomic::Ordering::Relaxed);
+
+            if !stdout.is_empty() || !stderr.is_empty() {
+                eprintln!("{stdout}\n{stderr}");
+            }
+
+            Self::Running { out, stdin }
+            // })
+        } else {
+            Self::SpawnCommand {
+                name: name.to_owned(),
+                arguments,
+                ignore_exit_code,
+                merge_stderr,
+            }
         }
     }
 }
 
 impl Runner for Command {
-    fn run(&mut self, test: &Test) -> Result<(), String> {
-        fn run_command<S: AsRef<std::ffi::OsStr>>(
-            command: &str,
-            args: impl Iterator<Item = S>,
-            // env: Option<Vec<(String, String)>>,
-            // capture_stdout: bool,
-            // capture_stderr: bool,
-        ) -> (String, std::process::ExitStatus) {
-            use std::io::{Read, pipe};
-            use std::process::{Command, Stdio};
+    fn run(&mut self, test: &Test) -> Result<String, String> {
+        match self {
+            Self::SpawnCommand {
+                name,
+                arguments,
+                ignore_exit_code,
+                merge_stderr,
+            } => {
+                let arguments = arguments.iter().map(|argument| {
+                    let argument = argument.as_str();
+                    if let "{content}" = argument {
+                        // TODO should this be part of the markdown parser
+                        test.case.as_str().trim_end()
+                    } else if let "{file}" = argument {
+                        todo!("create file")
+                    } else {
+                        argument
+                    }
+                });
+                let mut command = process::Command::new(name);
+                command.args(arguments);
 
-            // let env = env.unwrap_or_default();
+                let command = commands::spawn_command(command, *merge_stderr).unwrap();
+                let (stdout_output, stderr_output, exit_code) = command.read_to_end().unwrap();
 
-            // Shouldn't need pipe here
-            let (mut reader, writer) = pipe().expect("could not create pipe");
-            let (stdout, stderr): (Stdio, Stdio) = (writer.into(), Stdio::inherit());
-
-            let mut child = Command::new(command)
-                .args(args)
-                .stdout(stdout)
-                .stderr(stderr)
-                // .envs(env)
-                .spawn()
-                .expect("Failed to spawn command");
-
-            let mut output = String::new();
-            reader.read_to_string(&mut output).expect("invalid UTF8");
-            let result = child.wait().expect("command not finished");
-            // Remove whitespace from end
-            output.truncate(output.trim_end().len());
-            (output, result)
-        }
-
-        let (output, exit_code) = run_command(
-            &self.name,
-            self.arguments.iter().map(|argument| {
-                let argument = argument.as_str();
-                if let "{content}" = argument {
-                    // TODO should this be part of the markdown parser
-                    test.case.as_str().trim_end()
-                } else if let "{file}" = argument {
-                    todo!("create file")
+                if !*ignore_exit_code && !exit_code.success() {
+                    Err(format!(
+                        "Command failed with {exit_code:?}\n{stderr_output}"
+                    ))
                 } else {
-                    argument
+                    if test.expected.is_none() && !stdout_output.is_empty() {
+                        eprintln!(
+                            "Possibly unexpected stdout output {stdout_output} from {name}",
+                            name = test.name
+                        );
+                    }
+                    Ok(stdout_output)
                 }
-            }),
-        );
+            }
+            Self::Running { out, stdin } => {
+                for line in test.case.as_str().lines() {
+                    // eprintln!("TEMP writing {line:?}");
+                    writeln!(stdin, "{line}").expect("could not write");
+                }
 
-        // #[allow(clippy::nested)]
-        if let Some(ref expected) = test.output {
-            if !self.configuration.ignore_exit_code && !exit_code.success() {
-                Err(format!("Command failed with {exit_code:?}"))
-            } else if is_equal_ignore_new_line_sequence(&output, expected) {
-                Ok(())
-            } else {
-                Err(pretty_assertions::StrComparison::new(expected, &output).to_string())
+                writeln!(stdin, "end").expect("could not write");
+
+                let (out, stderr) = out.read_until(|line| matches!(line, "end")).unwrap();
+
+                // TODO WIP
+                if out
+                    .lines()
+                    .next_back()
+                    .is_some_and(|line| line.starts_with("error: "))
+                {
+                    Err(stderr)
+                } else {
+                    Ok(out)
+                }
             }
-        } else {
-            if !output.is_empty() {
-                eprintln!("Possibly unexpected stdout output {output}");
-            }
-            if exit_code.success() {
-                Ok(())
-            } else {
-                Err(format!("Command failed with {exit_code:?}"))
+        }
+    }
+
+    fn close(self) {
+        if let Self::Running { mut stdin, out } = self {
+            // Send the close signal
+            writeln!(stdin, "close").unwrap();
+
+            // TODO other fields here
+            let (rest, _, _) = out.read_to_end().unwrap();
+            for line in rest.lines() {
+                println!("left over: {line}");
             }
         }
     }
 }
 
-fn is_equal_ignore_new_line_sequence(lhs: &str, rhs: &str) -> bool {
-    // We should not care about trailing new lines here...
-    let mut lhs = lhs.lines();
-    let mut rhs = rhs.lines();
-    loop {
-        match (lhs.next(), rhs.next()) {
-            (Some(lhs), Some(rhs)) => {
-                if lhs != rhs {
-                    return false;
-                }
-            }
-            (Some(_), _) | (_, Some(_)) => {
-                return false;
-            }
-            (None, None) => {
-                return true;
-            }
+pub struct Commands {
+    commands: Vec<(String, Command)>,
+}
+
+impl Commands {
+    #[must_use]
+    pub fn new(data: &str) -> Self {
+        let items = data.split(',');
+        let commands = items
+            .map(|item| (item.to_owned(), Command::new(item)))
+            .collect();
+        Self { commands }
+    }
+}
+
+impl Runner for Commands {
+    fn run(&mut self, test: &Test) -> Result<String, String> {
+        let mut buf = String::new();
+        for (name, command) in &mut self.commands {
+            let out = command.run(test)?;
+            buf.push_str(name);
+            buf.push_str(":\n");
+            buf.push_str(&out);
+            buf.push('\n');
         }
+        Ok(buf)
+    }
+
+    fn close(self) {
+        self.commands
+            .into_iter()
+            .for_each(|(_, command)| command.close());
     }
 }
