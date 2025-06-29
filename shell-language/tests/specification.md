@@ -93,7 +93,27 @@ ttttt
 
 > Straightforward substring replace
 
+```sh
+let input = literal "Hello Ben"
+let new = replace $input "Hello" "Hiya"
+echo $new
+```
+
+```
+Hiya Ben
+```
+
 #### Lines
+
+```sh
+let input = literal "\n\n\n\n"
+let lines = lines $input
+echo $lines
+```
+
+```
+4
+```
 
 #### Before and after
 
@@ -140,8 +160,36 @@ Based on new lines
 let condition = literal test
 ```
 
+```
+...
+```
+
 #### conditional commands
 
 ```sh
+what
+```
 
+```
+???
+```
+
+### Pipe
+
+```sh
+literal "four" then repeat 5 then size then echo 
+```
+
+```
+20
+```
+
+### Pipe reference using argument
+
+```sh
+literal "four" then echo "Command returned $last"
+```
+
+```
+Command returned four
 ```

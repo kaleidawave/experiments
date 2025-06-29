@@ -15,12 +15,25 @@ pub fn move_copy_file(
     if from.is_dir() {
         todo!("copy/move directory");
     } else if from.is_file() {
+        // Identify moving to a folder
+        let new_to;
+        let to = if to.to_str().is_some_and(|path| path.ends_with('/')) || to.is_dir() {
+            let name_and_extension = from.components().next_back().unwrap();
+            new_to = to.join(name_and_extension);
+            &new_to
+        } else {
+            to
+        };
+
+        // Create directories
         if let Some(parent) = to.parent() {
             fs::create_dir_all(parent)?;
         }
+
         let content = fs::read(from)?;
         fs::write(to, content)?;
 
+        // Copy metadata
         let metadata = fs::metadata(from)?;
         let permissions = metadata.permissions();
         fs::set_permissions(to, permissions)?;

@@ -16,14 +16,22 @@ pub fn evaluate_program(program: &Program<'_>) {
 pub fn evaluate_statement<'a>(statement: &Statement<'a>, ctx: &mut Context<'a>) {
     match statement {
         Statement::Declaration { name, value } => {
-            let (value, exit_code) = evaluate_command(value, ctx);
+            let (value, exit_code) = evaluate_command(
+                value.name,
+                Arguments::new(&value.arguments, ctx),
+                value.then.as_deref(),
+            );
             ctx.insert(name, value);
             if let Some(exit_code) = exit_code {
                 ctx.insert("exit_code", exit_code.to_string());
             }
         }
         Statement::Assignment { name, value } => {
-            let (value, exit_code) = evaluate_command(value, ctx);
+            let (value, exit_code) = evaluate_command(
+                value.name,
+                Arguments::new(&value.arguments, ctx),
+                value.then.as_deref(),
+            );
             match ctx.entry(name) {
                 Entry::Occupied(mut existing) => {
                     existing.insert(value);
@@ -37,7 +45,11 @@ pub fn evaluate_statement<'a>(statement: &Statement<'a>, ctx: &mut Context<'a>) 
             }
         }
         Statement::Command(command) => {
-            let (_, exit_code) = evaluate_command(command, ctx);
+            let (_, exit_code) = evaluate_command(
+                command.name,
+                Arguments::new(&command.arguments, ctx),
+                command.then.as_deref(),
+            );
             if let Some(exit_code) = exit_code {
                 ctx.insert("exit_code", exit_code.to_string());
             }
@@ -46,7 +58,11 @@ pub fn evaluate_statement<'a>(statement: &Statement<'a>, ctx: &mut Context<'a>) 
             iterator,
             statements,
         } => {
-            let (result, exit_code) = evaluate_command(iterator, ctx);
+            let (result, exit_code) = evaluate_command(
+                iterator.name,
+                Arguments::new(&iterator.arguments, ctx),
+                iterator.then.as_deref(),
+            );
             if let Some(exit_code) = exit_code {
                 ctx.insert("exit_code", exit_code.to_string());
             }
@@ -58,6 +74,7 @@ pub fn evaluate_statement<'a>(statement: &Statement<'a>, ctx: &mut Context<'a>) 
                 }
 
                 let part = part.strip_suffix('\r').unwrap_or(part);
+                // Set iterator variable name
                 match iterator.name {
                     "git" => match iterator.arguments.first().map(|arg| arg.0) {
                         Some("tag") => {
@@ -92,7 +109,11 @@ pub fn evaluate_statement<'a>(statement: &Statement<'a>, ctx: &mut Context<'a>) 
             condition,
             statements,
         } => {
-            let (result, exit_code) = evaluate_command(condition, ctx);
+            let (result, exit_code) = evaluate_command(
+                condition.name,
+                Arguments::new(&condition.arguments, ctx),
+                condition.then.as_deref(),
+            );
             if let Some(exit_code) = exit_code {
                 ctx.insert("exit_code", exit_code.to_string());
             }
@@ -106,8 +127,14 @@ pub fn evaluate_statement<'a>(statement: &Statement<'a>, ctx: &mut Context<'a>) 
     }
 }
 
+struct CommandContext<'a> {
+    // Because cannot mutate argument half way through
+    last: Option<String>,
+    ctx: &'a Context<'a>,
+}
+
 /// interpolate variables
-fn evaluate_argument<'a>(argument: &Argument<'a>, ctx: &'a Context<'a>) -> Cow<'a, str> {
+fn evaluate_argument<'a>(argument: &Argument<'a>, ctx: &'a CommandContext<'a>) -> Cow<'a, str> {
     let mut result = Cow::Borrowed("");
     let mut start = 0;
     let on = &argument.0;
@@ -126,8 +153,10 @@ fn evaluate_argument<'a>(argument: &Argument<'a>, ctx: &'a Context<'a>) -> Cow<'
                 .split_once(|chr: char| !(chr.is_alphanumeric() || matches!(chr, '_')))
                 .map_or(rest, |(rest, _)| rest);
             if let "ctx" = reference {
-                result += Cow::Owned(format!("{ctx:?}"));
-            } else if let Some(argument) = ctx.get(&reference) {
+                result += Cow::Owned(format!("{ctx:?}", ctx=ctx.ctx));
+            } else if let ("piped" | "last", Some(argument)) = (reference, &ctx.last) {
+                result += Cow::Borrowed(argument.as_str());
+            } else if let Some(argument) = ctx.ctx.get(&reference) {
                 result += Cow::Borrowed(argument.as_str());
             } else if let Some(env) = crate::utilities::get_environment_variable(reference) {
                 result += Cow::Owned(env);
@@ -174,21 +203,83 @@ fn evaluate_argument<'a>(argument: &Argument<'a>, ctx: &'a Context<'a>) -> Cow<'
     result
 }
 
+pub struct Arguments<'a> {
+    context: CommandContext<'a>,
+    arguments: &'a [crate::parsing::ast::Argument<'a>],
+    idx: usize,
+}
+
+impl<'a> Arguments<'a> {
+    pub fn peek_first(&self) -> &'a str {
+        self.arguments.first().map(|arg| arg.0).unwrap_or_default()
+    }
+
+    pub fn context(&self) -> &'a Context {
+        self.context.ctx
+    }
+
+    pub fn new(arguments: &'a [crate::parsing::ast::Argument<'a>], ctx: &'a Context<'a>) -> Self {
+        Self {
+            context: CommandContext { last: None, ctx },
+            arguments,
+            idx: 0,
+        }
+    }
+
+    pub fn new_with_last(
+        arguments: &'a [crate::parsing::ast::Argument<'a>],
+        ctx: &'a Context<'a>,
+        last: String,
+    ) -> Self {
+        Self {
+            context: CommandContext {
+                last: Some(last),
+                ctx,
+            },
+            arguments,
+            idx: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for Arguments<'a> {
+    type Item = Cow<'a, str>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx == 0
+            && self.context.last.is_some()
+            && !self.arguments.iter().any(|arg| arg.0.contains("$piped"))
+        {
+            let value = self.context.last.take().unwrap();
+            Some(Cow::Owned(value))
+        } else {
+            let idx = self.idx;
+            self.idx += 1;
+            self.arguments
+                .get(idx)
+                .map(|arg| evaluate_argument(arg, &self.context))
+        }
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 #[must_use]
-pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option<i32>) {
-    match command.name {
+pub fn evaluate_command<'a>(
+    name: &'a str,
+    mut arguments: Arguments<'a>,
+    then: Option<&'a Command>,
+) -> (String, Option<i32>) {
+    let (out, exit_code): (String, Option<i32>) = match name {
         // Command line printing
         "echo" | "echo_stdout" => {
-            let mut some = false;
-            if let Some("run") = command.arguments.first().map(|arg| arg.0) {
-                let mut arguments = command.arguments[1..].iter();
-
-                let first_argument = arguments.next().expect("command name");
-                let command = evaluate_argument(first_argument, ctx);
+            if let "run" = arguments.peek_first() {
+                // Skip "run"
+                let _ = arguments.next();
+                let command = arguments.next().expect("command name");
                 let args = arguments
-                    .map(|arg| evaluate_argument(arg, ctx).into_owned())
+                    .by_ref()
                     .filter(|arg| !arg.is_empty())
+                    .map(|arg| arg.into_owned())
                     .collect::<Vec<String>>();
 
                 let (_output, result) =
@@ -196,56 +287,56 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
 
                 (String::new(), result.code())
             } else {
-                for (idx, argument) in command.arguments.iter().enumerate() {
-                    let result = evaluate_argument(argument, ctx);
-                    if !result.is_empty() {
+                let mut some = false;
+                for (idx, argument) in arguments.by_ref().enumerate() {
+                    if !argument.is_empty() {
                         some = true;
                         if idx > 0 {
                             print!(" ");
                         }
-                        print!("{result}");
+                        print!("{argument}");
                     }
                 }
-                if command.arguments.is_empty() || some {
+                if some {
                     println!();
                 }
                 (String::new(), None)
             }
         }
         "echo_stderr" => {
-            for (idx, argument) in command.arguments.iter().enumerate() {
-                if idx > 0 {
-                    eprint!(" ");
+            let mut some = false;
+            for (idx, argument) in arguments.by_ref().enumerate() {
+                if !argument.is_empty() {
+                    some = true;
+                    if idx > 0 {
+                        eprint!(" ");
+                    }
+                    eprint!("{argument}");
                 }
-                eprint!("{}", evaluate_argument(argument, ctx));
             }
-            eprintln!();
+            if some {
+                eprintln!();
+            }
             (String::new(), None)
         }
         // Run command
         name @ ("run" | "with") => {
-            let mut arguments = command.arguments.iter();
             let mut env: Vec<(String, String)> = Vec::new();
             if let "with" = name {
                 while let Some(key) = arguments.next() {
-                    if let "run" = key.0 {
+                    // TODO this can come from computed...?
+                    if let "run" = &*key {
                         break;
                     }
-                    let key = evaluate_argument(key, ctx);
                     let value = arguments.next().expect("env value");
-                    let value = evaluate_argument(value, ctx);
                     if !value.is_empty() {
                         env.push((key.into_owned(), value.into_owned()));
                     }
                 }
             }
 
-            let first_argument = arguments.next().expect("command name");
-            let command = evaluate_argument(first_argument, ctx);
-            let mut args: Vec<String> = arguments
-                .map(|arg| evaluate_argument(arg, ctx).into_owned())
-                .filter(|arg| !arg.is_empty())
-                .collect();
+            let command = arguments.next().expect("command name");
+            let mut args: Vec<String> = arguments.by_ref().map(|arg| arg.into_owned()).collect();
 
             let (capture_stdout, capture_stderr) = if args
                 .pop_if(|top| top == "--merge-stdout-and-stderr")
@@ -270,8 +361,7 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
         }
         // Environment variables
         "env" => {
-            let mut arguments = command.arguments.iter();
-            let name: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+            let name: &str = &arguments.next().expect("no env name");
             if let Some(value) = crate::utilities::get_environment_variable(name) {
                 (value, Some(0))
             } else {
@@ -283,9 +373,8 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
         "mv" | "move" => {
             use std::path::Path;
 
-            let mut arguments = command.arguments.iter();
-            let from: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-            let to: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+            let from: &str = &arguments.next().unwrap();
+            let to: &str = &arguments.next().unwrap();
             let response = crate::utilities::move_copy_file(Path::new(from), Path::new(to), true);
             match response {
                 Ok(()) => (String::default(), Some(0)),
@@ -298,9 +387,8 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
         "cp" | "copy" => {
             use std::path::Path;
 
-            let mut arguments = command.arguments.iter();
-            let from: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-            let to: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+            let from: &str = &arguments.next().unwrap();
+            let to: &str = &arguments.next().unwrap();
 
             let response = crate::utilities::move_copy_file(Path::new(from), Path::new(to), false);
             match response {
@@ -314,8 +402,7 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
         "rm" | "remove" => {
             use std::path::Path;
 
-            let mut arguments = command.arguments.iter();
-            let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+            let path: &str = &arguments.next().unwrap();
             let path: &Path = Path::new(path);
             if path.is_dir() {
                 fs::remove_dir(path).unwrap();
@@ -336,8 +423,7 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
                 use std::os::unix::fs::PermissionsExt;
                 use std::path::Path;
 
-                let mut arguments = command.arguments.iter();
-                let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                let path: &str = &arguments.next().unwrap();
                 crate::utilities::visit_paths(Path::new(path), &|file_path| {
                     let metadata = metadata(&path).unwrap();
                     let mut permissions = metadata.permissions();
@@ -369,12 +455,8 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
         }
         // Scan files
         "files" => {
-            let pattern = if let Some(arg) = command.arguments.first() {
-                evaluate_argument(arg, ctx)
-            } else {
-                Cow::Borrowed("")
-            };
-            match glob::glob(&pattern) {
+            let pattern: &str = &arguments.next().expect("expected file pattern");
+            match glob::glob(pattern) {
                 Ok(paths) => {
                     let mut output = String::new();
                     for path in paths {
@@ -393,9 +475,8 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
         }
         // File reads and writes
         "write" => {
-            let mut arguments = command.arguments.iter();
-            let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-            let output: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+            let path: &str = &arguments.next().unwrap();
+            let output: &str = &arguments.next().unwrap();
             if fs::write(path, output).is_ok() {
                 (String::default(), Some(0))
             } else {
@@ -404,8 +485,7 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
             }
         }
         "read" => {
-            let mut arguments = command.arguments.iter();
-            let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+            let path: &str = &arguments.next().unwrap();
             if let Ok(content) = fs::read_to_string(path) {
                 (content, Some(0))
             } else {
@@ -414,9 +494,8 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
             }
         }
         "append" => {
-            let mut arguments = command.arguments.iter();
-            let path: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-            let to_append: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+            let path: &str = &arguments.next().unwrap();
+            let to_append: &str = &arguments.next().unwrap();
             if let Ok(mut content) = fs::read_to_string(path) {
                 // I think this is okay
                 content.push('\n');
@@ -434,32 +513,25 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
         }
         // String commands
         "repeat" => {
-            let mut arguments = command.arguments.iter();
-            let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-            let repeat: usize = evaluate_argument(arguments.next().unwrap(), ctx)
-                .parse()
-                .expect("invalid repeater");
+            let item: &str = &arguments.next().unwrap();
+            let repeat: usize = arguments.next().unwrap().parse().expect("invalid repeater");
             (item.repeat(repeat), None)
         }
         "replace" => {
-            let mut arguments = command.arguments.iter();
-            let item: &str = &evaluate_argument(arguments.next().expect("no item"), ctx);
-            let from: &str = &evaluate_argument(arguments.next().expect("no item to replace"), ctx);
-            let to: &str = &evaluate_argument(arguments.next().expect("no replacer"), ctx);
+            let item: &str = &arguments.next().expect("no item");
+            let from: &str = &arguments.next().expect("no item to replace");
+            let to: &str = &arguments.next().expect("no replacer");
             (item.replace(from, to), None)
         }
         "debug" => {
-            let mut arguments = command.arguments.iter();
-            let item: &str = &evaluate_argument(arguments.next().expect("no item"), ctx);
+            let item: &str = &arguments.next().expect("no item");
             (format!("{item:?}"), None)
         }
         "split" => {
             use std::fmt::Write;
 
-            let mut arguments = command.arguments.iter();
-            let item: &str = &evaluate_argument(arguments.next().expect("no item"), ctx);
-            let splitter: &str =
-                &evaluate_argument(arguments.next().expect("no splitter to replace"), ctx);
+            let item: &str = &arguments.next().expect("no item");
+            let splitter: &str = &arguments.next().expect("no splitter to replace");
 
             let mut s = String::default();
             for item in item.split(splitter) {
@@ -474,8 +546,7 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
             use std::fmt::Write;
 
             let mut s = String::new();
-            for argument in &command.arguments {
-                let argument = evaluate_argument(argument, ctx);
+            for argument in arguments.by_ref() {
                 if !argument.is_empty() {
                     if !s.is_empty() {
                         writeln!(&mut s).unwrap();
@@ -490,10 +561,8 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
             use std::fmt::Write;
 
             let mut s = String::new();
-            let mut arguments = command.arguments.iter();
-            let separator: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-            for argument in arguments {
-                let argument = evaluate_argument(argument, ctx);
+            let separator: &str = &arguments.next().unwrap();
+            for argument in arguments.by_ref() {
                 if !argument.is_empty() {
                     if !s.is_empty() {
                         write!(&mut s, "{separator}").unwrap();
@@ -504,9 +573,8 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
             (s, None)
         }
         str_slice_cmd @ ("before" | "after" | "rbefore" | "rafter") => {
-            let mut arguments = command.arguments.iter();
-            let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-            let splitter: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+            let item: &str = &arguments.next().unwrap();
+            let splitter: &str = &arguments.next().unwrap();
 
             let item = if str_slice_cmd.starts_with('r') {
                 item.rsplit_once(splitter)
@@ -515,22 +583,17 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
             };
             let out = if let Some((before, after)) = item {
                 if str_slice_cmd.ends_with("before") {
-                    before.to_owned()
+                    Cow::Borrowed(before)
                 } else {
-                    after.to_owned()
+                    Cow::Borrowed(after)
                 }
             } else {
-                arguments
-                    .next()
-                    .map(|default| evaluate_argument(default, ctx).into_owned())
-                    .unwrap_or_default()
+                arguments.next().unwrap_or_default()
             };
-            (out, None)
+            (out.into_owned(), None)
         }
         line_cmd @ ("last_line" | "first_line") => {
-            let mut arguments = command.arguments.iter();
-            let first_argument = arguments.next().unwrap();
-            let item: &str = &evaluate_argument(first_argument, ctx);
+            let item: &str = &arguments.next().unwrap();
 
             let mut lines = item.lines();
             let out = if line_cmd.starts_with("first") {
@@ -538,26 +601,23 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
             } else {
                 lines.next_back()
             };
-            (out.unwrap_or_default().to_owned(), None)
+            let out = out.unwrap_or_default().to_owned();
+            (out, None)
         }
         "size" => {
-            let mut arguments = command.arguments.iter();
-            let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+            let item: &str = &arguments.next().unwrap();
             (item.len().to_string(), None)
         }
         "lines" => {
-            let mut arguments = command.arguments.iter();
-            let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+            let item: &str = &arguments.next().unwrap();
             (item.lines().count().to_string(), None)
         }
         "trim" => {
-            let mut arguments = command.arguments.iter();
-            let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+            let item: &str = &arguments.next().unwrap();
             (item.trim().to_owned(), None)
         }
         "format_number" => {
-            let mut arguments = command.arguments.iter();
-            let item: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+            let item: &str = &arguments.next().unwrap();
             // implementation is a little borked
             let result = if item.contains('.') {
                 let num: f64 = item.parse().expect("cannot format non float");
@@ -590,16 +650,15 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
         "regexp" => {
             use regress::Regex;
 
-            let mut arguments = command.arguments.iter();
-            let source: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
-            let expression: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+            let source: &str = &arguments.next().unwrap();
+            let expression: &str = &arguments.next().unwrap();
 
             let re = Regex::new(expression).unwrap();
             let result = re.find(source);
 
             if let Some(r#match) = result {
-                if let Some("extract") = arguments.next().map(|argument| argument.0) {
-                    let name: &str = &evaluate_argument(arguments.next().unwrap(), ctx);
+                if let Some("extract") = arguments.next().as_deref() {
+                    let name: &str = &arguments.next().unwrap();
                     let range = r#match
                         .named_groups()
                         .find_map(|(key, range)| (key == name).then_some(range));
@@ -622,12 +681,9 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
         "date" => {
             use jiff::{Timestamp, fmt::strtime};
 
-            let mut arguments = command.arguments.iter();
-            let format = if let Some(argument) = arguments.next() {
-                evaluate_argument(argument, ctx)
-            } else {
-                Cow::Borrowed("%a %-d %b %Y %T %z")
-            };
+            let format = arguments
+                .next()
+                .unwrap_or(Cow::Borrowed("%a %-d %b %Y %T %z"));
             let now = Timestamp::now();
             if let Ok(rendered) = strtime::format(&*format, now) {
                 (rendered, None)
@@ -638,47 +694,35 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
         }
         // Control flow
         "if_equal" => {
-            let mut arguments = command.arguments.iter();
             let first_argument = arguments.next().unwrap();
             let second_argument = arguments.next().unwrap();
             let then = arguments.next().unwrap();
-            let equal =
-                evaluate_argument(first_argument, ctx) == evaluate_argument(second_argument, ctx);
+            let equal = first_argument == second_argument;
             let out = if equal {
-                evaluate_argument(then, ctx).into_owned()
+                then
             } else {
-                arguments
-                    .next()
-                    .map(|r#else| evaluate_argument(r#else, ctx).into_owned())
-                    .unwrap_or_default()
+                arguments.next().unwrap_or_default()
             };
-            (out, None)
+            (out.into_owned(), None)
         }
         "if_contains" => {
-            let mut arguments = command.arguments.iter();
             let item = arguments.next().unwrap();
             let substring = arguments.next().unwrap();
-            let then = arguments.next().unwrap();
-            let contains =
-                evaluate_argument(item, ctx).contains(&*evaluate_argument(substring, ctx));
+            let then = arguments.next();
+            let contains = item.contains(&*substring);
             let out = if contains {
-                evaluate_argument(then, ctx).into_owned()
+                then.unwrap()
             } else {
-                arguments
-                    .next()
-                    .map(|r#else| evaluate_argument(r#else, ctx).into_owned())
-                    .unwrap_or_default()
+                arguments.next().unwrap_or_default()
             };
-            (out, None)
+            (out.into_owned(), None)
         }
         // TODO WIP. "known programs"
         command_name @ ("cargo" | "git" | "gh" | "hyperfine" | "jq" | "yq" | "node" | "deno"
         | "bun" | "sqlite3" | "python" | "npm" | "bat") => {
-            let args = command
-                .arguments
-                .iter()
-                .map(|arg| evaluate_argument(arg, ctx).into_owned())
-                .filter(|arg| !arg.is_empty())
+            let args = arguments
+                .by_ref()
+                .map(|arg| arg.into_owned())
                 .collect::<Vec<String>>();
 
             let (output, result) =
@@ -687,16 +731,25 @@ pub fn evaluate_command(command: &Command<'_>, ctx: &Context) -> (String, Option
             (output, result.code())
         }
         // For constants
-        "literal" | "constant" => {
-            // skip any others
-            let first_argument = command.arguments.first().unwrap();
-            (evaluate_argument(first_argument, ctx).into_owned(), None)
-        }
+        "literal" | "constant" => (arguments.next().unwrap().into_owned(), None),
         // For conditionally invoking commands
         "noop" => (String::default(), None),
         name => {
             eprintln!("unknown command '{name}'");
             (String::default(), Some(1))
         }
+    };
+
+    if let Some(ref then) = then
+        && exit_code.is_none_or(|code| code != 0)
+    {
+        // let context =
+        evaluate_command(
+            then.name,
+            Arguments::new_with_last(&then.arguments, arguments.context(), out),
+            then.then.as_deref(),
+        )
+    } else {
+        (out, exit_code)
     }
 }

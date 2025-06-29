@@ -27,6 +27,7 @@ pub mod ast {
     pub struct Command<'a> {
         pub name: &'a str,
         pub arguments: Vec<Argument<'a>>,
+        pub then: Option<Box<Self>>,
     }
 
     /// Holds strings and literals
@@ -157,6 +158,15 @@ pub mod parsing {
             } else if let ' ' = chr {
                 let part = on[last..idx].trim();
                 if !part.is_empty() {
+                    if part == "then" {
+                        let next = parse_command(&on[idx..]);
+                        return Command {
+                            name,
+                            arguments,
+                            then: Some(Box::new(next)),
+                        };
+                    }
+
                     if name.is_empty() {
                         name = part;
                     } else {
@@ -174,6 +184,10 @@ pub mod parsing {
                 arguments.push(Argument(rest));
             }
         }
-        Command { name, arguments }
+        Command {
+            name,
+            arguments,
+            then: None,
+        }
     }
 }

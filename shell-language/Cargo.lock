@@ -191,7 +191,14 @@ dependencies = [
  "jiff",
  "multiline-term-input",
  "regress",
+ "simple-json-parser",
 ]
+
+[[package]]
+name = "simple-json-parser"
+version = "0.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "401316a5107f070bf2d7e15de68e1412d585226540647d306f296d9a1e1acef9"
 
 [[package]]
 name = "syn"
