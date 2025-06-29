@@ -134,7 +134,7 @@ struct CommandContext<'a> {
 }
 
 /// interpolate variables
-fn evaluate_argument<'a>(argument: &Argument<'a>, ctx: &'a CommandContext<'a>) -> Cow<'a, str> {
+fn evaluate_argument<'a>(argument: &Argument<'a>, ctx: &CommandContext<'a>) -> Cow<'a, str> {
     let mut result = Cow::Borrowed("");
     let mut start = 0;
     let on = &argument.0;
@@ -153,9 +153,10 @@ fn evaluate_argument<'a>(argument: &Argument<'a>, ctx: &'a CommandContext<'a>) -
                 .split_once(|chr: char| !(chr.is_alphanumeric() || matches!(chr, '_')))
                 .map_or(rest, |(rest, _)| rest);
             if let "ctx" = reference {
-                result += Cow::Owned(format!("{ctx:?}", ctx=ctx.ctx));
+                result += Cow::Owned(format!("{ctx:?}", ctx = ctx.ctx));
             } else if let ("piped" | "last", Some(argument)) = (reference, &ctx.last) {
-                result += Cow::Borrowed(argument.as_str());
+                // TODO cannot borrow here because of lifetime of `ctx: &'? CommandContext<'a>`
+                result += Cow::Owned(argument.clone());
             } else if let Some(argument) = ctx.ctx.get(&reference) {
                 result += Cow::Borrowed(argument.as_str());
             } else if let Some(env) = crate::utilities::get_environment_variable(reference) {
@@ -248,7 +249,10 @@ impl<'a> Iterator for Arguments<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.idx == 0
             && self.context.last.is_some()
-            && !self.arguments.iter().any(|arg| arg.0.contains("$piped"))
+            && !self
+                .arguments
+                .iter()
+                .any(|arg| arg.0.contains("$piped") || arg.0.contains("$last"))
         {
             let value = self.context.last.take().unwrap();
             Some(Cow::Owned(value))

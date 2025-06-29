@@ -37,14 +37,17 @@ pub mod ast {
 
 pub mod parsing {
     use super::ast::{Argument, Command, Program, Statement};
+    use super::utilities;
 
-    pub type Lines<'a> = std::iter::Peekable<std::str::Lines<'a>>;
+    pub type Lines<'a> = utilities::LinesWithContinuation<'a>;
+
+    static LINE_CONTINUATIONS: &[&str] = &["then", "\\"];
 
     #[must_use]
     pub fn parse_program(on: &str) -> Program<'_> {
         let mut stmts: Vec<Statement> = Vec::new();
 
-        let mut lines = on.lines().peekable();
+        let mut lines = Lines::new(on, LINE_CONTINUATIONS);
         while let Some(line) = lines.next() {
             if let Some(stmt) = parse_statement(line, &mut lines, 0) {
                 stmts.push(stmt);
@@ -53,23 +56,12 @@ pub mod parsing {
         Program(stmts)
     }
 
-    #[must_use]
-    pub fn strip_ident(mut line: &str, upto: usize) -> &str {
-        for _ in 0..upto {
-            line = line
-                .strip_prefix("\t")
-                .or_else(|| line.strip_prefix("  "))
-                .unwrap_or(line);
-        }
-        line
-    }
-
     pub fn parse_statement<'a>(
         line: &'a str,
         lines: &mut Lines<'a>,
         depth: usize,
     ) -> Option<Statement<'a>> {
-        let line = strip_ident(line, depth);
+        let line = utilities::strip_indent(line, depth);
         // comment or empty
         if line.starts_with('#') || line.trim().is_empty() {
             None
@@ -88,17 +80,13 @@ pub mod parsing {
         {
             let iterator = parse_command(inner);
             let mut statements = Vec::new();
-            loop {
-                let line = lines.next().expect("expected for loop body");
+            while let Some(line) = lines.next() {
                 if let Some(stmt) = parse_statement(line, lines, depth + 1) {
                     statements.push(stmt);
                 }
-                let r#continue = lines
-                    .peek()
-                    .map(|line| strip_ident(line, depth))
-                    .is_some_and(|line: &str| {
-                        line.is_empty() || line.starts_with('\t') || line.starts_with("  ")
-                    });
+                let next = utilities::strip_indent(lines.rest(), depth);
+                let r#continue =
+                    next.is_empty() || next.starts_with('\t') || next.starts_with("  ");
                 if !r#continue {
                     break;
                 }
@@ -110,17 +98,13 @@ pub mod parsing {
         } else if let Some(inner) = line.trim_start().strip_prefix("if ") {
             let condition = parse_command(inner);
             let mut statements = Vec::new();
-            loop {
-                let line = lines.next().expect("expected if body");
+            while let Some(line) = lines.next() {
                 if let Some(stmt) = parse_statement(line, lines, depth + 1) {
                     statements.push(stmt);
                 }
-                let r#continue = lines
-                    .peek()
-                    .map(|line| strip_ident(line, depth))
-                    .is_some_and(|line: &str| {
-                        line.is_empty() || line.starts_with('\t') || line.starts_with("  ")
-                    });
+                let next = utilities::strip_indent(lines.rest(), depth);
+                let r#continue =
+                    next.is_empty() || next.starts_with('\t') || next.starts_with("  ");
                 if !r#continue {
                     break;
                 }
@@ -140,6 +124,7 @@ pub mod parsing {
         let mut in_string: Option<char> = None;
         let mut last = 0;
         let mut escaped = false;
+        // TODO match indices?
         for (idx, chr) in on.char_indices() {
             if let Some(matcher) = in_string {
                 if escaped {
@@ -152,11 +137,13 @@ pub mod parsing {
                     in_string = None;
                 }
                 escaped = chr == '\\';
-            } else if let ('"' | '\'' | '`', "") = (chr, on[last..idx].trim()) {
+            } else if let '"' | '\'' | '`' = chr
+                && on.get(last..idx).is_none_or(|item| item.trim().is_empty())
+            {
                 in_string = Some(chr);
                 // last = idx;
-            } else if let ' ' = chr {
-                let part = on[last..idx].trim();
+            } else if chr.is_whitespace() {
+                let part = on.get(last..idx).unwrap_or_default().trim();
                 if !part.is_empty() {
                     if part == "then" {
                         let next = parse_command(&on[idx..]);
@@ -174,6 +161,10 @@ pub mod parsing {
                     }
                     last = idx + chr.len_utf8();
                 }
+            } else if let '\\' = chr
+                && let Some(n) = utilities::new_line_sequence_length(&on[(idx + 1)..])
+            {
+                last = idx + n + 1;
             }
         }
         let rest = &on[last..].trim();
@@ -189,5 +180,88 @@ pub mod parsing {
             arguments,
             then: None,
         }
+    }
+}
+
+mod utilities {
+
+    #[must_use]
+    pub fn strip_indent(mut line: &str, upto: usize) -> &str {
+        for _ in 0..upto {
+            line = line
+                .strip_prefix("\t")
+                .or_else(|| line.strip_prefix("  "))
+                .unwrap_or(line);
+        }
+        line
+    }
+
+    pub struct LinesWithContinuation<'a> {
+        matches: &'static [&'static str],
+        on: &'a str,
+        last: usize,
+    }
+
+    impl<'a> LinesWithContinuation<'a> {
+        pub fn new(on: &'a str, matches: &'static [&'static str]) -> Self {
+            LinesWithContinuation {
+                on,
+                matches,
+                last: 0,
+            }
+        }
+
+        pub fn rest(&self) -> &'a str {
+            &self.on[self.last..]
+        }
+    }
+
+    impl<'a> Iterator for LinesWithContinuation<'a> {
+        type Item = &'a str;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let start = self.last;
+            while let Some((idx, seq)) = find_new_line_sequence(&self.on[self.last..]) {
+                self.last += idx + seq;
+                let last = self.on[..self.last].trim_end();
+                if self.matches.iter().any(|matcher| last.ends_with(matcher)) {
+                    continue;
+                } else {
+                    return Some(&self.on[start..self.last].trim_end());
+                }
+            }
+            if start < self.on.len() {
+                self.last = self.on.len();
+                Some(&self.on[start..].trim_end())
+            } else {
+                None
+            }
+        }
+    }
+
+    fn find_new_line_sequence(on: &str) -> Option<(usize, usize)> {
+        for (idx, matched) in on.match_indices(['\r', '\n']) {
+            // TODO does this check need to be done?
+            if matched == "\r" && on[idx..].starts_with("\r\n") {
+                return Some((idx, 2));
+            } else {
+                return Some((idx, 1));
+            }
+        }
+        None
+    }
+
+    pub fn new_line_sequence_length(on: &str) -> Option<usize> {
+        if on.starts_with("\r\n") {
+            Some(2)
+        } else if on.starts_with("\n") {
+            Some(1)
+        } else {
+            None
+        }
+    }
+
+    pub fn starts_with_new_line_sequence(on: &str) -> bool {
+        on.starts_with("\r\n") || on.starts_with("\n")
     }
 }

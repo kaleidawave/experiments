@@ -138,11 +138,29 @@ echo "'$raft'"
 
 #### Matching and extraction
 
-##### Glob matching
-
 ##### RegExp matching
 
+```sh
+let source = constant "Invalid match"
+let result = regexp $source "Hello (.+?)"
+echo $result
+```
+
+```
+Ben
+```
+
 ##### RegExp extraction
+
+```sh
+let source = constant "Hello Ben. Does this regular expression work?"
+let name = regexp $source "Hello (?<name>.+?)\\b" extract name
+echo $name
+```
+
+```
+Ben
+```
 
 ## Control flow
 
@@ -154,14 +172,34 @@ Based on new lines
 
 ### Conditionals
 
+```sh
+let x = "hi"
+if literal $x then
+	echo "found hi"
+
+set x = ""
+if literal $x then
+	echo "found hello"
+```
+
+```
+found hi
+```
+
 #### `if_equal`
 
 ```sh
 let condition = literal test
+let result = if_equal $condition "test" "is test" "not test"
+echo $result
+
+let result = if_equal $condition "asd" "is asd" "not asd"
+echo $result
 ```
 
 ```
-...
+is test
+not asd
 ```
 
 #### conditional commands
@@ -188,6 +226,58 @@ literal "four" then repeat 5 then size then echo
 
 ```sh
 literal "four" then echo "Command returned $last"
+```
+
+```
+Command returned four
+```
+
+### Iteration
+
+```sh
+let lines = literal "hello\nworld"
+for literal $lines each
+	echo "line: $iter"
+```
+
+```
+line: hello
+line: world
+```
+
+### Iteration with break
+
+```sh
+let lines = literal "hello\nworld\nanother\nline\nhere"
+for literal $lines each
+	echo "line: $iter"
+	set break = if_equal $iter "another" break ""
+```
+
+```
+line: hello
+line: world
+line: another
+```
+
+## Syntax
+
+### Backslash line continuations
+
+```sh
+echo "item 1" \
+	"item 2"
+```
+
+```
+item 1 item 2
+```
+
+### `then` line continuations
+
+```sh
+literal "four" then
+	echo "Command returned $last"
 ```
 
 ```

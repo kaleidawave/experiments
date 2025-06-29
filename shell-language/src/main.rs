@@ -72,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 mod interactive {
     use super::evaluate::{Context, evaluate_statement};
-    use super::parsing::parsing::parse_statement;
+    use super::parsing::parsing::{Lines, parse_statement};
 
     #[derive(Default)]
     pub struct InteractiveState {
@@ -88,7 +88,7 @@ mod interactive {
             // TODO can we append it somewhere, that doesn't move. Pinned?
             let command = String::leak(command);
             let statement =
-                parse_statement(command, &mut "".lines().peekable(), 0).expect("no statement");
+                parse_statement(command, &mut Lines::new("", &[]), 0).expect("no statement");
             evaluate_statement(&statement, &mut self.context);
         }
     }
