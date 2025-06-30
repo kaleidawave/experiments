@@ -463,11 +463,13 @@ pub fn evaluate_command<'a>(
             match glob::glob(pattern) {
                 Ok(paths) => {
                     let mut output = String::new();
-                    for path in paths {
-                        if !output.is_empty() {
-                            output.push('\n');
+                    for path in paths.filter_map(Result::ok) {
+                        if path.is_file() {
+                            if !output.is_empty() {
+                                output.push('\n');
+                            }
+                            output.push_str(&path.display().to_string().replace('\\', "/"));
                         }
-                        output.push_str(&path.unwrap().display().to_string().replace('\\', "/"));
                     }
                     (output, Some(0))
                 }
