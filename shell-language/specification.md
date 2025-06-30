@@ -55,6 +55,31 @@ Hello
 
 ### Run
 
+#### with
+
+```sh
+let output = run node --print "5341"
+let output = trim $output
+echo $output
+```
+
+```
+5341
+```
+
+#### with
+
+```sh
+let my_value = literal 2812
+let output = with my_value $my_value run node --print "process.env.my_value"
+let output = trim $output
+echo $output
+```
+
+```
+2812
+```
+
 ### Variables
 
 > Variables are declared using `let` and can be referenced by prefixing items with `$`
@@ -143,11 +168,11 @@ echo "'$raft'"
 ```sh
 let source = constant "Invalid match"
 let result = regexp $source "Hello (.+?)"
-echo $result
+echo 'Recieved $exit_code "$result""
 ```
 
 ```
-Ben
+Recieved 1 ""
 ```
 
 ##### RegExp extraction
@@ -173,12 +198,12 @@ Based on new lines
 ### Conditionals
 
 ```sh
-let x = "hi"
-if literal $x then
+let x = constant "hi"
+if literal $x
 	echo "found hi"
 
-set x = ""
-if literal $x then
+set x = constant ""
+if literal $x
 	echo "found hello"
 ```
 
@@ -189,7 +214,7 @@ found hi
 #### `if_equal`
 
 ```sh
-let condition = literal test
+let condition = constant "test"
 let result = if_equal $condition "test" "is test" "not test"
 echo $result
 
@@ -202,7 +227,7 @@ is test
 not asd
 ```
 
-#### conditional commands
+#### Conditional commands
 
 ```sh
 what
@@ -258,6 +283,28 @@ for literal $lines each
 line: hello
 line: world
 line: another
+```
+
+### Nested iteration
+
+```sh
+let char1s = concatenate a b c
+for constant $char1s each
+	let char2s = concatenate 1 2 3
+	for constant $char2s each
+		echo "Found $char1 $char2"
+```
+
+```
+Found a 1
+Found a 2
+Found a 3
+Found b 1
+Found b 2
+Found b 3
+Found c 1
+Found c 2
+Found c 3
 ```
 
 ## Syntax
