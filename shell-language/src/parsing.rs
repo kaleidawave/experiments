@@ -84,7 +84,8 @@ pub mod parsing {
                 if let Some(stmt) = parse_statement(line, lines, depth + 1) {
                     statements.push(stmt);
                 }
-                let next = utilities::strip_indent(lines.rest(), depth);
+                let next = lines.rest().lines().next().unwrap_or_default();
+                let next = utilities::strip_indent(next, depth);
                 let r#continue =
                     next.is_empty() || next.starts_with('\t') || next.starts_with("  ");
                 if !r#continue {
