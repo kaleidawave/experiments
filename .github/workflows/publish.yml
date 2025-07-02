@@ -60,7 +60,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - id: checkout
+        uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Set git credentials
@@ -78,7 +79,9 @@ jobs:
 
       - name: Push updated Cargo.toml
         run: |
+          git status
+          echo ${{ steps.checkout.outputs.ref }}
           git add .
           git commit -m "Release: ${{ steps.release.outputs.new-versions-description }}"
           git tag "release/${{ steps.release.outputs.new-version }}"
-          git push --tags origin
+          git push --tags origin ${{ steps.checkout.outputs.ref }}
