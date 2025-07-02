@@ -724,8 +724,8 @@ pub fn evaluate_command<'a>(
             (out.into_owned(), None)
         }
         // TODO WIP. "known programs"
-        "cargo" | "git" | "gh" | "hyperfine" | "jq" | "yq" | "node" | "deno"
-        | "bun" | "sqlite3" | "python" | "npm" | "bat" => {
+        "cargo" | "git" | "gh" | "hyperfine" | "jq" | "yq" | "node" | "deno" | "bun"
+        | "sqlite3" | "python" | "npm" | "bat" => {
             let args = arguments
                 .by_ref()
                 .map(|arg| arg.into_owned())

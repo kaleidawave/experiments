@@ -1,3 +1,4 @@
+pub mod check_and_explain;
 pub mod evaluate;
 pub mod parsing;
 pub mod utilities;
@@ -49,21 +50,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.parse_and_evaluate_command(input.to_owned());
         }
     } else {
-        let source: String = if let "--evaluate" | "-e" = first.as_str() {
-            args.next().unwrap_or_default()
+        let (path, source) = if let "--evaluate" | "-e" = first.as_str() {
+            ("...".to_owned(), args.next().unwrap_or_default())
         } else {
-            fs::read_to_string(first)?
+            let content = fs::read_to_string(&first)?;
+            (first, content)
         };
 
         let rest: Vec<_> = args.collect();
 
         let debug_program: bool = rest.iter().any(|flag| flag == "--debug-program");
-        let program = parsing::parsing::parse_program(&source);
+        let check: bool = rest.iter().any(|flag| flag == "--check");
+        let explain: bool = rest.iter().any(|flag| flag == "--explain");
 
-        if debug_program {
-            eprintln!("{program:#?}");
+        if check {
+            let file = codespan_reporting::files::SimpleFile::new(path, source);
+            let state = check_and_explain::State {
+                file,
+                config: codespan_reporting::term::Config::default(),
+                explain,
+            };
+            let mut writer = codespan_reporting::term::termcolor::StandardStream::stdout(
+                codespan_reporting::term::termcolor::ColorChoice::default(),
+            );
+            let program = parsing::parsing::parse_program(state.file.source());
+            check_and_explain::check_program(&program, &state, &mut writer);
+            // TODO exit code
         } else {
-            evaluate::evaluate_program(&program);
+            let program = parsing::parsing::parse_program(&source);
+
+            if debug_program {
+                eprintln!("{program:#?}");
+            } else {
+                evaluate::evaluate_program(&program);
+            }
         }
     }
 
