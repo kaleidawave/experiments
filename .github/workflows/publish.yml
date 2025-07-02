@@ -5,6 +5,7 @@ on:
 
 jobs:
   publish-assets:
+    if: false
     permissions: write-all
 
     strategy:
@@ -59,6 +60,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
       - name: Set git credentials
         run: |
           git config user.name "github-actions[bot]"
