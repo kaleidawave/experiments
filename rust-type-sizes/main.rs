@@ -43,7 +43,7 @@ fn main() {
     let out = String::from_utf8(output.stdout).expect("invalid utf8");
     if out.is_empty() {
         panic!(
-            "'-Zprint-type-sizes' does not output on cached build. edit 'lib.rs' to break cache"
+            "'-Zprint-type-sizes' does not output on cached builds. Make a change to 'lib.rs' to force a rebuild so that information can be printed"
         );
     }
 
