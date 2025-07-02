@@ -49,6 +49,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  publish-crates:
+    permissions: write-all
+
+    strategy:
+      matrix:
+        binary: [rust-type-sizes]
+        
+    runs-on: ubuntu-latest
+
+    steps:
       - name: Set git credentials
         run: |
           git config user.name "github-actions[bot]"
