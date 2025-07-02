@@ -1,29 +1,29 @@
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Item {
     pub total: Field,
     pub kind: Kind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Field {
     pub name: String,
     pub size: usize,
     pub alignment: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum FieldOrPadding {
     Field(Field),
     Padding(usize),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Variant {
     pub total: Field,
     pub fields: Vec<FieldOrPadding>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Kind {
     EnumItem {
         discriminant: usize,
@@ -238,7 +238,8 @@ fn parse_byte_count(on: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::item_from_input;
+    use super::{item_from_input, Field, Kind, FieldOrPadding};
+
     #[test]
     fn parse() {
         let out = &["print-type-size type: `Item<'_, '_>`: 48 bytes, alignment: 8 bytes
@@ -282,6 +283,30 @@ print-type-size     variant `__variant2`: 0 bytes"];
         assert_eq!(&items[0].total.name, "Item<'_, '_>");
         assert_eq!(items[0].total.size, 48);
 
+        assert_eq!(items[4].total.name, "sys::fs::windows::ReadDir");
         assert_eq!(items[4].total.size, 624);
+        assert_eq!(
+            items[4].kind,
+            Kind::StructItem {
+                fields: vec![
+                    FieldOrPadding::Field(Field {
+                        name: "handle".to_owned(),
+                        size: 16,
+                        alignment: 0
+                    }),
+                    FieldOrPadding::Field(Field {
+                        name: "root".to_owned(),
+                        size: 8,
+                        alignment: 0
+                    }),
+                    FieldOrPadding::Field(Field {
+                        name: "first".to_owned(),
+                        size: 596,
+                        alignment: 0
+                    }),
+                    FieldOrPadding::Padding(4),
+                ]
+            }
+        );
     }
 }
