@@ -2,10 +2,7 @@ use crate::parsing::ast::{Command, Program, Statement};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::SimpleFile;
-use codespan_reporting::term::{
-    self, Config,
-    termcolor::{StandardStream},
-};
+use codespan_reporting::term::{self, Config, termcolor::StandardStream};
 
 pub struct State {
     pub file: SimpleFile<String, String>,
@@ -31,7 +28,7 @@ fn check_statement(
     match statement {
         Statement::Declaration { name, value } => {
             check_command(value, state, stream, names_context);
-            names_context.push(name.to_string());
+            names_context.push((*name).to_string());
         }
         Statement::Assignment { name, value } => {
             let contains = names_context.iter().any(|name2| name2 == name);
@@ -42,7 +39,7 @@ fn check_statement(
                 let diagnostic = Diagnostic::error().with_labels(vec![label]);
                 term::emit(&mut stream.lock(), &state.config, &state.file, &diagnostic).unwrap();
             }
-			check_command(value, state, stream, names_context);
+            check_command(value, state, stream, names_context);
         }
         Statement::Command(command) => {
             check_command(command, state, stream, names_context);
@@ -70,13 +67,13 @@ fn check_statement(
 }
 
 #[allow(clippy::too_many_lines)]
-pub fn check_command<'a>(
+pub fn check_command(
     command: &Command,
     state: &State,
     stream: &mut StandardStream,
     names_context: &NamesInContext,
 ) {
-	// TODO check arguments
+    // TODO check arguments
     match command.name {
         "echo" | "echo_stdout" => {}
         "echo_stderr" => {}
@@ -120,7 +117,7 @@ pub fn check_command<'a>(
             let diagnostic = Diagnostic::error().with_labels(vec![label]);
             term::emit(&mut stream.lock(), &state.config, &state.file, &diagnostic).unwrap();
         }
-    };
+    }
 
     for argument in &command.arguments {
         let mut last_was_escape_backslash = false;
@@ -137,11 +134,14 @@ pub fn check_command<'a>(
                     .split_once(|chr: char| !(chr.is_alphanumeric() || matches!(chr, '_')))
                     .map_or(rest, |(rest, _)| rest);
                 if !names_context.iter().any(|name2| name2 == reference) {
-                    let start = (reference.as_ptr() as usize) - (state.file.source().as_ptr() as usize) - 1;
-                    let label = Label::primary((), start..(start + reference.len() + 1))
+                    let start =
+                        (reference.as_ptr() as usize) - (state.file.source().as_ptr() as usize) - 1;
+                    let label_length = reference.len() + 1;
+                    let label = Label::primary((), start..(start + label_length))
                         .with_message(format!("Variable '{reference}' does not exist"));
                     let diagnostic = Diagnostic::error().with_labels(vec![label]);
-                    term::emit(&mut stream.lock(), &state.config, &state.file, &diagnostic).unwrap();
+                    term::emit(&mut stream.lock(), &state.config, &state.file, &diagnostic)
+                        .unwrap();
                 }
             }
         }

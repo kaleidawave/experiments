@@ -206,29 +206,32 @@ fn evaluate_argument<'a>(argument: &Argument<'a>, ctx: &CommandContext<'a>) -> C
 
 pub struct Arguments<'a> {
     context: CommandContext<'a>,
-    arguments: &'a [crate::parsing::ast::Argument<'a>],
+    ast: &'a [crate::parsing::ast::Argument<'a>],
     idx: usize,
 }
 
 impl<'a> Arguments<'a> {
+    #[must_use]
     pub fn peek_first(&self) -> &'a str {
-        self.arguments.first().map(|arg| arg.0).unwrap_or_default()
+        self.ast.first().map(|arg| arg.0).unwrap_or_default()
     }
-
+    #[must_use]
     pub fn context(&self) -> &'a Context {
         self.context.ctx
     }
 
-    pub fn new(arguments: &'a [crate::parsing::ast::Argument<'a>], ctx: &'a Context<'a>) -> Self {
+    #[must_use]
+    pub fn new(ast: &'a [crate::parsing::ast::Argument<'a>], ctx: &'a Context<'a>) -> Self {
         Self {
             context: CommandContext { last: None, ctx },
-            arguments,
+            ast,
             idx: 0,
         }
     }
 
+    #[must_use]
     pub fn new_with_last(
-        arguments: &'a [crate::parsing::ast::Argument<'a>],
+        ast: &'a [crate::parsing::ast::Argument<'a>],
         ctx: &'a Context<'a>,
         last: String,
     ) -> Self {
@@ -237,7 +240,7 @@ impl<'a> Arguments<'a> {
                 last: Some(last),
                 ctx,
             },
-            arguments,
+            ast,
             idx: 0,
         }
     }
@@ -250,7 +253,7 @@ impl<'a> Iterator for Arguments<'a> {
         if self.idx == 0
             && self.context.last.is_some()
             && !self
-                .arguments
+                .ast
                 .iter()
                 .any(|arg| arg.0.contains("$piped") || arg.0.contains("$last"))
         {
@@ -259,7 +262,7 @@ impl<'a> Iterator for Arguments<'a> {
         } else {
             let idx = self.idx;
             self.idx += 1;
-            self.arguments
+            self.ast
                 .get(idx)
                 .map(|arg| evaluate_argument(arg, &self.context))
         }
@@ -283,7 +286,7 @@ pub fn evaluate_command<'a>(
                 let args = arguments
                     .by_ref()
                     .filter(|arg| !arg.is_empty())
-                    .map(|arg| arg.into_owned())
+                    .map(std::borrow::Cow::into_owned)
                     .collect::<Vec<String>>();
 
                 let (_output, result) =
@@ -340,7 +343,10 @@ pub fn evaluate_command<'a>(
             }
 
             let command = arguments.next().expect("command name");
-            let mut args: Vec<String> = arguments.by_ref().map(|arg| arg.into_owned()).collect();
+            let mut args: Vec<String> = arguments
+                .by_ref()
+                .map(std::borrow::Cow::into_owned)
+                .collect();
 
             let (capture_stdout, capture_stderr) = if args
                 .pop_if(|top| top == "--merge-stdout-and-stderr")
@@ -728,7 +734,7 @@ pub fn evaluate_command<'a>(
         | "sqlite3" | "python" | "npm" | "bat" => {
             let args = arguments
                 .by_ref()
-                .map(|arg| arg.into_owned())
+                .map(std::borrow::Cow::into_owned)
                 .collect::<Vec<String>>();
 
             let (output, result) =
@@ -744,7 +750,7 @@ pub fn evaluate_command<'a>(
         }
     };
 
-    if let Some(ref then) = then
+    if let Some(then) = then
         && exit_code.is_none_or(|code| code == 0)
     {
         evaluate_command(

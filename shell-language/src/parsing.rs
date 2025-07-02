@@ -227,13 +227,12 @@ mod utilities {
                 let last = self.on[..self.last].trim_end();
                 if self.matches.iter().any(|matcher| last.ends_with(matcher)) {
                     continue;
-                } else {
-                    return Some(&self.on[start..self.last].trim_end());
                 }
+                return Some(self.on[start..self.last].trim_end());
             }
             if start < self.on.len() {
                 self.last = self.on.len();
-                Some(&self.on[start..].trim_end())
+                Some(self.on[start..].trim_end())
             } else {
                 None
             }
@@ -241,13 +240,13 @@ mod utilities {
     }
 
     fn find_new_line_sequence(on: &str) -> Option<(usize, usize)> {
-        for (idx, matched) in on.match_indices(['\r', '\n']) {
+        if let Some((idx, matched)) = on.match_indices(['\r', '\n']).next() {
             // TODO does this check need to be done?
-            if matched == "\r" && on[idx..].starts_with("\r\n") {
-                return Some((idx, 2));
+            return if matched == "\r" && on[idx..].starts_with("\r\n") {
+                Some((idx, 2))
             } else {
-                return Some((idx, 1));
-            }
+                Some((idx, 1))
+            };
         }
         None
     }
@@ -263,6 +262,6 @@ mod utilities {
     }
 
     pub fn starts_with_new_line_sequence(on: &str) -> bool {
-        on.starts_with("\r\n") || on.starts_with("\n")
+        on.starts_with("\r\n") || on.starts_with('\n')
     }
 }
