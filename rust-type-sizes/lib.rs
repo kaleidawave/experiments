@@ -1,3 +1,39 @@
+#[derive(Debug)]
+pub struct Item {
+    pub total: Field,
+    pub kind: Kind,
+}
+
+#[derive(Debug)]
+pub struct Field {
+    pub name: String,
+    pub size: usize,
+    pub alignment: usize,
+}
+
+#[derive(Debug)]
+pub enum FieldOrPadding {
+    Field(Field),
+    Padding(usize),
+}
+
+#[derive(Debug)]
+pub struct Variant {
+    pub total: Field,
+    pub fields: Vec<FieldOrPadding>,
+}
+
+#[derive(Debug)]
+pub enum Kind {
+    EnumItem {
+        discriminant: usize,
+        variants: Vec<Variant>,
+    },
+    StructItem {
+        fields: Vec<FieldOrPadding>,
+    },
+}
+
 pub fn item_from_input(out: &str, skip: impl Fn(&str, usize) -> bool) -> Option<Item> {
     let Some(out) = out.strip_prefix("print-type-size type: `") else {
         panic!("did not start with 'print-type-size type: `'");
@@ -200,38 +236,52 @@ fn parse_byte_count(on: &str) -> usize {
     }
 }
 
-#[derive(Debug)]
-pub struct Item {
-    pub total: Field,
-    pub kind: Kind,
-}
+#[cfg(test)]
+mod tests {
+    use super::item_from_input;
+    #[test]
+    fn parse() {
+        let out = &["print-type-size type: `Item<'_, '_>`: 48 bytes, alignment: 8 bytes
+print-type-size     field `.total_source`: 16 bytes
+print-type-size     field `.raw_node`: 32 bytes",
 
-#[derive(Debug)]
-pub struct Field {
-    pub name: String,
-    pub size: usize,
-    pub alignment: usize,
-}
+    "print-type-size type: `tree_sitter::Node<'_>`: 32 bytes, alignment: 8 bytes
+print-type-size     field `.0`: 32 bytes
+print-type-size     field `.1`: 0 bytes",
 
-#[derive(Debug)]
-pub enum FieldOrPadding {
-    Field(Field),
-    Padding(usize),
-}
+    "print-type-size type: `result::Result<(), std::fmt::Error>`: 1 bytes, alignment: 1 bytes
+print-type-size     discriminant: 1 bytes
+print-type-size     variant `Ok`: 0 bytes
+print-type-size         field `.0`: 0 bytes
+print-type-size     variant `Err`: 0 bytes
+print-type-size         field `.0`: 0 bytes",
 
-#[derive(Debug)]
-pub struct Variant {
-    pub total: Field,
-    pub fields: Vec<FieldOrPadding>,
-}
+    "print-type-size type: `result::Result<std::fs::ReadDir, std::io::Error>`: 624 bytes, alignment: 8 bytes
+print-type-size     variant `Ok`: 624 bytes
+print-type-size         field `.0`: 624 bytes
+print-type-size     variant `Err`: 16 bytes
+print-type-size         padding: 8 bytes
+print-type-size         field `.0`: 8 bytes, alignment: 8 bytes",
 
-#[derive(Debug)]
-pub enum Kind {
-    EnumItem {
-        discriminant: usize,
-        variants: Vec<Variant>,
-    },
-    StructItem {
-        fields: Vec<FieldOrPadding>,
-    },
+    "print-type-size type: `sys::fs::windows::ReadDir`: 624 bytes, alignment: 8 bytes
+print-type-size     field `.handle`: 16 bytes
+print-type-size     field `.root`: 8 bytes
+print-type-size     field `.first`: 596 bytes
+print-type-size     end padding: 4 bytes",
+
+    "print-type-size type: `ffi::c_void`: 1 bytes, alignment: 1 bytes
+print-type-size     discriminant: 1 bytes
+print-type-size     variant `__variant1`: 0 bytes
+print-type-size     variant `__variant2`: 0 bytes"];
+
+        let items: Vec<_> = out
+            .iter()
+            .map(|part| item_from_input(part, |_, _| false).unwrap())
+            .collect();
+
+        assert_eq!(&items[0].total.name, "Item<'_, '_>");
+        assert_eq!(items[0].total.size, 48);
+
+        assert_eq!(items[4].total.size, 624);
+    }
 }
