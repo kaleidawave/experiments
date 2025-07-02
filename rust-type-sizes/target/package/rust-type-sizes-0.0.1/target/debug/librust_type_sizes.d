@@ -1,0 +1,1 @@
+/home/runner/work/experiments/experiments/rust-type-sizes/target/package/rust-type-sizes-0.0.1/target/debug/librust_type_sizes.rlib: /home/runner/work/experiments/experiments/rust-type-sizes/target/package/rust-type-sizes-0.0.1/lib.rs
