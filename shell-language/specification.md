@@ -55,11 +55,10 @@ Hello
 
 ### Run
 
-#### with
+#### run
 
 ```sh
 let output = run node --print "5341"
-let output = trim $output
 echo $output
 ```
 
@@ -67,17 +66,38 @@ echo $output
 5341
 ```
 
+#### echo run
+
+```sh
+echo run node --print "5934"
+```
+
+```
+5934
+```
+
 #### with
 
 ```sh
 let my_value = literal 2812
 let output = with my_value $my_value run node --print "process.env.my_value"
-let output = trim $output
 echo $output
 ```
 
 ```
 2812
+```
+
+#### echo merge stdout and stderr
+
+```sh
+let output = run node --eval "console.log('ok');console.error('err');" --merge-stdout-and-stderr
+echo "Recieved $output"
+```
+
+```
+Recieved ok
+err
 ```
 
 ### Variables
@@ -227,16 +247,6 @@ is test
 not asd
 ```
 
-#### Conditional commands
-
-```sh
-what
-```
-
-```
-???
-```
-
 ### Pipe
 
 ```sh
@@ -293,18 +303,24 @@ for constant $char1s each
 	let char2s = concatenate 1 2 3
 	for constant $char2s each
 		echo "Found $char1 $char2"
+	echo "---"
 ```
+
+> This is a test for parsing as well. Iteration can introduce variables based on dropping the final 's'
 
 ```
 Found a 1
 Found a 2
 Found a 3
+---
 Found b 1
 Found b 2
 Found b 3
+---
 Found c 1
 Found c 2
 Found c 3
+---
 ```
 
 ## Syntax

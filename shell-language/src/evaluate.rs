@@ -324,7 +324,7 @@ pub fn evaluate_command<'a>(
             (String::new(), None)
         }
         // Run command
-        name @ ("run" | "with") => {
+        "run" | "with" => {
             let mut env: Vec<(String, String)> = Vec::new();
             if let "with" = name {
                 while let Some(key) = arguments.next() {
@@ -578,17 +578,17 @@ pub fn evaluate_command<'a>(
             }
             (s, None)
         }
-        str_slice_cmd @ ("before" | "after" | "rbefore" | "rafter") => {
+        "before" | "after" | "rbefore" | "rafter" => {
             let item: &str = &arguments.next().unwrap();
             let splitter: &str = &arguments.next().unwrap();
 
-            let item = if str_slice_cmd.starts_with('r') {
+            let item = if name.starts_with('r') {
                 item.rsplit_once(splitter)
             } else {
                 item.split_once(splitter)
             };
             let out = if let Some((before, after)) = item {
-                if str_slice_cmd.ends_with("before") {
+                if name.ends_with("before") {
                     Cow::Borrowed(before)
                 } else {
                     Cow::Borrowed(after)
@@ -598,11 +598,11 @@ pub fn evaluate_command<'a>(
             };
             (out.into_owned(), None)
         }
-        line_cmd @ ("last_line" | "first_line") => {
+        "last_line" | "first_line" => {
             let item: &str = &arguments.next().unwrap();
 
             let mut lines = item.lines();
-            let out = if line_cmd.starts_with("first") {
+            let out = if name.starts_with("first") {
                 lines.next()
             } else {
                 lines.next_back()
@@ -724,22 +724,20 @@ pub fn evaluate_command<'a>(
             (out.into_owned(), None)
         }
         // TODO WIP. "known programs"
-        command_name @ ("cargo" | "git" | "gh" | "hyperfine" | "jq" | "yq" | "node" | "deno"
-        | "bun" | "sqlite3" | "python" | "npm" | "bat") => {
+        "cargo" | "git" | "gh" | "hyperfine" | "jq" | "yq" | "node" | "deno"
+        | "bun" | "sqlite3" | "python" | "npm" | "bat" => {
             let args = arguments
                 .by_ref()
                 .map(|arg| arg.into_owned())
                 .collect::<Vec<String>>();
 
             let (output, result) =
-                crate::utilities::run_command(command_name.to_owned(), args, None, true, false);
+                crate::utilities::run_command(name.to_owned(), args, None, true, false);
 
             (output, result.code())
         }
         // For constants
         "literal" | "constant" => (arguments.next().unwrap().into_owned(), None),
-        // For conditionally invoking commands
-        "noop" => (String::default(), None),
         name => {
             eprintln!("unknown command '{name}'");
             (String::default(), Some(1))
@@ -747,9 +745,8 @@ pub fn evaluate_command<'a>(
     };
 
     if let Some(ref then) = then
-        && exit_code.is_none_or(|code| code != 0)
+        && exit_code.is_none_or(|code| code == 0)
     {
-        // let context =
         evaluate_command(
             then.name,
             Arguments::new_with_last(&then.arguments, arguments.context(), out),
