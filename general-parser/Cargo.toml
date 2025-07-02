@@ -1,0 +1,11 @@
+[package]
+name = "general-parser"
+version = "0.0.1"
+edition = "2024"
+publish = false
+
+[features]
+default = ["to_string"]
+to_string = []
+
+[dependencies]
