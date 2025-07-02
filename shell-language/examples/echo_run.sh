@@ -1,0 +1,1 @@
+echo run node --eval "console.log('hiya')"

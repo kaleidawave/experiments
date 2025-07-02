@@ -1,0 +1,1 @@
+A bash like language that is simpler
