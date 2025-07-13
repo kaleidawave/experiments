@@ -4,8 +4,28 @@ on:
   push
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        library: [specification-tool]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Run check
+        run: cargo check
+        working-directory: ${{ matrix.library }}
+
+      - name: Run test
+        run: cargo test
+        working-directory: ${{ matrix.library }}
+
   publish-assets:
     permissions: write-all
+    needs: check
 
     strategy:
       matrix:
@@ -50,3 +70,39 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-crates:
+    permissions: write-all
+    needs: check
+
+    strategy:
+      matrix:
+        library: [specification-tool]
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - id: checkout
+        uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Set git credentials
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Crates publish
+        uses: kaleidawave/crates-release-gh-action@improvements
+        id: release
+        with:
+          version: patch
+          crates-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          working-directory: ${{ matrix.library }}
+
+      - name: Push updated Cargo.toml
+        run: |
+          git status
+          echo "::debug::${{ steps.checkout.outputs.ref }}"
+          git add .
+          git commit -m "Release: ${{ steps.release.outputs.new-versions-description }}"
+          # git push --tags origin ${{ steps.checkout.outputs.ref }}
