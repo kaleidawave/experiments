@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Spreadsheet</title>
+	<style>
+		body {
+			font-family: Inter;
+			padding: 100px;
+		}
+
+		table {
+			border-collapse: collapse;
+			user-select: none;
+			width: 100%;
+			table-layout: auto;
+		}
+
+		td,
+		th {
+			padding: 0;
+			min-width: 100px;
+			border: 1px solid rgb(219, 219, 219);
+			font-size: 18px;
+		}
+
+		td {
+			text-align: right;
+		}
+
+		th:first-child,
+		td:first-child {
+			min-width: 60px;
+		}
+
+		td:first-child {
+			font-variant-numeric: tabular-nums;
+			text-align: center;
+		}
+
+		input {
+			font-family: inherit;
+			font-size: inherit;
+			border: 0;
+			text-align: center;
+			width: auto;
+			background: none;
+			padding: 4px 0;
+		}
+
+		input:focus {
+			outline: none;
+		}
+
+		input.number::selection {
+			background-color: transparent
+		}
+
+		input.number:focus {
+			cursor: w-resize;
+			user-select: none;
+		}
+
+		td:focus-within {
+			outline: 2px solid rgb(63, 106, 246);
+		}
+	</style>
+</head>
+
+<body>
+	<table>
+		<thead>
+			<tr>
+				<th></th>
+				<th>A</th>
+				<th>B</th>
+				<th>C</th>
+				<th>D</th>
+			</tr>
+		</thead>
+		<tbody></tbody>
+	</table>
+	<pre></pre>
+
+	<script type="module">
+		const table = document.querySelector("table>tbody");
+		const pre = document.querySelector("pre");
+		const w = table.previousElementSibling.firstElementChild.children.length - 1, h = 10;
+
+		for (let i = 1; i <= h; i++) {
+			const row = document.createElement("tr");
+			{
+				const item = document.createElement("td");
+				item.innerText = i.toString().padStart(2, "0");
+				row.append(item);
+			}
+			for (let j = 0; j < w; j++) {
+				const item = document.createElement("td");
+				{
+					const input = document.createElement("input");
+					input.setAttribute("type", "text");
+					input.setAttribute("title", "field");
+					input.setAttribute("name", `${i}:${j}`);
+					input.addEventListener("focus", onFocus);
+					input.addEventListener("blur", onBlur);
+					item.append(input);
+				}
+				row.append(item);
+			}
+			table.append(row);
+		}
+
+		document.body.addEventListener("keydown", (ev) => {
+			const { target } = ev;
+			if (target instanceof HTMLInputElement && target.closest("table")) {
+				// If tab
+				if (ev.keyCode === 13) {
+					const row = target.parentElement.parentElement;
+					// idx starts at 1 here because of leading
+					let idx = Array.prototype.indexOf.call(row.children, target.parentElement);
+					const rowToSelect = ev.shiftKey ? row.previousElementSibling : row.nextElementSibling;
+					if (rowToSelect) rowToSelect.children[idx].firstElementChild.focus();
+					ev.preventDefault();
+				}
+				// if (ev.keyCode === 9 && target.value === "") {
+
+				// }
+				pre.innerText = JSON.stringify({ key: ev.keyCode, ...ev });
+			}
+		});
+
+		let lastValue = "";
+
+		function onFocus(ev) {
+			lastValue = ev.target.value;
+		}
+
+		function onBlur(ev) {
+			const { target } = ev;
+			const value = target.value;
+			const isExpression = value.startsWith("=");
+			if (isExpression) {
+
+			} else {
+				const asFloat = parseFloat(value);
+				const isNumber = !Number.isNaN(asFloat);
+				const last = parseFloat(lastValue);
+
+				if (isNumber && !Number.isNaN(last)) {
+					changeNumber(last, asFloat, target)
+				}
+
+				// TODO set on input
+				target.classList.toggle("number", isNumber);
+				ev.target.setAttribute("draggable", isNumber)
+			}
+			pre.innerText = JSON.stringify({ value, isExpression, ...ev });
+
+			lastValue = value;
+		}
+
+		let start = null;
+		let current = null;
+		let startValue = null;
+		document.body.addEventListener("dragstart", (ev) => {
+			const { target } = ev;
+			if (target instanceof HTMLInputElement && target.closest("table") && target.classList.contains("number")) {
+				start = ev.clientX;
+				startValue = parseFloat(target.value);
+				current = target;
+				// ev.dataTransfer.setImage none
+				// ev.dataTransfer.setData none
+				pre.innerText = JSON.stringify({ id: "started", startValue, ...ev });
+			}
+		})
+		document.body.addEventListener("drag", (ev) => {
+			const { target } = ev;
+			// For some reason sometimes fired with (x, y) = (0, 0)
+			if (start !== null && !(ev.x === 0 && ev.y === 0)) {
+				const offset = ev.clientX - start;
+				pre.innerText = JSON.stringify({ offset });
+				current.value = startValue + offset;
+			}
+		});
+
+		document.body.addEventListener("dragend", (ev) => {
+			start = null;
+			current?.blur();
+			current = null;
+		});
+
+		// TODO wip
+		document.body.addEventListener("drop", (ev) => {
+			if (start !== null) {
+				ev.preventDefault();
+			}
+		});
+
+		function changeNumber(last, next, element) {
+			if (last >= 0 && next < 0) {
+				const keyframes = [
+					{ background: "rgba(255, 29, 39, 0.6)" },
+					{ background: "none" }
+				];
+				element.animate(keyframes, { duration: 1000 });
+			}
+		}
+	</script>
+</body>
+
+</html>
