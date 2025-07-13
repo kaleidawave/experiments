@@ -1,4 +1,8 @@
 const args = process.argv.slice(2);
-const value = args[0];
-if (args[1] === "--uppercase") console.log(value.toUpperCase());
+let value = args[0];
+if (args.includes("--use-lists")) {
+	value = value.split("\n").map(line => `- ${line}`).join("\n");
+}
+
+if (args.includes("--uppercase")) console.log(value.toUpperCase());
 else console.log(value);

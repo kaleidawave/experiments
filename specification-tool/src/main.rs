@@ -1,7 +1,9 @@
-use spectra_lib::{
-    Command, Commands, RunConfiguration, extract_tests, run_tests_under_path,
+use spectra::{
+    RunConfiguration, extract_tests, run_tests_under_path,
+    runners::program::{Command, Commands},
     utilities::{filter, visit_specification_files},
 };
+
 use std::io::Write;
 use std::path::Path;
 use std::process::ExitCode;
@@ -63,7 +65,7 @@ fn main() -> ExitCode {
             let path = args.next().expect("expected path");
             let command_pattern = args.next().expect("expected command");
 
-            let mut run_configuration = spectra_lib::RunConfiguration {
+            let mut run_configuration = spectra::RunConfiguration {
                 dry_run: true,
                 ..Default::default()
             };
@@ -105,6 +107,10 @@ fn main() -> ExitCode {
             let path = Path::new(&path);
             let _prefix = path.parent().map(|path| path.display().to_string());
 
+            let debug = args
+                .next()
+                .is_some_and(|slice| matches!(slice.as_str(), "--debug"));
+
             let mut count = 0;
             let mut files = 0;
             let () = visit_specification_files(path, &mut |path| {
@@ -112,7 +118,11 @@ fn main() -> ExitCode {
                 let tests = extract_tests(&content, true);
                 println!("--- {path} ---", path = path.display());
                 for test in tests {
-                    println!("{name}", name = test.name);
+                    if debug {
+                        println!("{test:?}");
+                    } else {
+                        println!("{name}", name = test.name);
+                    }
                     count += 1;
                 }
                 files += 1;

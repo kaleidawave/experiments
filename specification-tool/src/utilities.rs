@@ -64,192 +64,132 @@ pub mod filter {
 }
 
 pub mod commands {
-    use std::io::{self, BufRead, BufReader, Read, Write};
-    use std::process::{self, Child, Command, ExitStatus, Stdio};
-    use std::sync;
-    use std::thread;
+    use std::io::{self, BufRead, BufReader};
+    use std::{process, sync, thread, time};
 
-    #[derive(Debug, PartialEq, Eq, Hash)]
+    #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
     pub enum Channel {
         Stdout,
         Stderr,
     }
 
-    pub fn spawn_command(mut command: Command, grouped: bool) -> io::Result<CommandOut> {
-        if grouped {
-            let (reader, writer) = io::pipe()?;
+    #[derive(Debug, PartialEq, Eq)]
+    pub enum ProcessNotification {
+        Message(Channel, String),
+        Completed, // (ExitStatus),
+    }
 
-            let child = command.stdout(writer.try_clone()?).stderr(writer).spawn()?;
+    #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+    pub enum ProcessStatus {
+        Finished,
+        Continuing,
+    }
 
-            Ok(CommandOut::Grouped(child, BufReader::new(reader)))
-        } else {
-            let (reader, writer) = io::pipe()?;
+    pub struct Process {
+        child: process::Child,
+        stdout_handle: thread::JoinHandle<()>,
+        stderr_handle: thread::JoinHandle<()>,
+        receiver: sync::mpsc::Receiver<ProcessNotification>,
+    }
 
+    impl Process {
+        pub fn spawn(mut command: process::Command) -> io::Result<Self> {
             let mut child = command
-                .stdout(Stdio::piped())
-                .stderr(writer.try_clone()?)
+                .stdout(process::Stdio::piped())
+                .stderr(process::Stdio::piped())
                 .spawn()?;
 
             let stdout = BufReader::new(child.stdout.take().expect("Failed to capture stdout"));
-            // let stderr = BufReader::new(child.stderr.take().expect("Failed to capture stderr"));
-            let stderr = BufReader::new(reader);
+            let stderr = BufReader::new(child.stderr.take().expect("Failed to capture stderr"));
 
-            Ok(CommandOut::Separated {
+            let (sender, receiver) = sync::mpsc::sync_channel::<ProcessNotification>(0);
+
+            // Thread to read `stdout`
+            let sender_stdout = sender.clone();
+            let stdout_handle = thread::spawn(move || {
+                for line in stdout.lines().map_while(Result::ok) {
+                    // TODO `expect` here
+                    sender_stdout
+                        .send(ProcessNotification::Message(Channel::Stdout, line))
+                        .expect("Failed to send stdout");
+                }
+
+                // TODO `expect` here
+                sender_stdout
+                    .send(ProcessNotification::Completed)
+                    .expect("Failed to send stdout");
+            });
+
+            // Thread to read `stderr`
+            let sender_stderr = sender; // .clone();
+            let stderr_handle = thread::spawn(move || {
+                for line in stderr.lines().map_while(Result::ok) {
+                    // TODO `expect` here
+                    sender_stderr
+                        .send(ProcessNotification::Message(Channel::Stderr, line))
+                        .expect("Failed to send stderr");
+                }
+            });
+
+            Ok(Self {
                 child,
-                stdout,
-                stderr,
-                stderr_writer: writer,
+                stdout_handle,
+                stderr_handle,
+                receiver,
             })
         }
-    }
 
-    pub enum CommandOut {
-        Grouped(Child, BufReader<io::PipeReader>),
-        Separated {
-            child: Child,
-            stdout: BufReader<process::ChildStdout>,
-            stderr: BufReader<io::PipeReader>,
-            // Used to 'blip' the writer so that it can exit
-            stderr_writer: io::PipeWriter,
-        },
-    }
-
-    impl CommandOut {
-        pub fn get_child(&mut self) -> &mut Child {
-            match self {
-                CommandOut::Grouped(child, _) | CommandOut::Separated { child, .. } => child,
-            }
-        }
-
-        pub fn read_until(&mut self, cb: impl Fn(&str) -> bool) -> io::Result<(String, String)> {
-            match self {
-                CommandOut::Grouped(_child, reader) => {
-                    let mut buf = String::new();
-                    for line in reader.lines().map_while(Result::ok) {
-                        if cb(&line) {
-                            break;
-                        }
-                        buf.push_str(&line);
-                        buf.push('\n');
-                    }
-                    Ok((buf, String::default()))
-                }
-                CommandOut::Separated {
-                    child: _,
-                    stdout,
-                    stderr,
-                    stderr_writer,
-                } => {
-                    let (mut stdout_buf, mut stderr_buf) = thread::scope(|s| {
-                        let thread = s.spawn(|| {
-                            let mut stderr_buf = String::new();
-                            for line in stderr.lines().map_while(Result::ok) {
-                                // dbg!(&line);
-                                if line == "please finish" {
-                                    break;
-                                }
-                                stderr_buf.push_str(&line);
-                                stderr_buf.push('\n');
-                            }
-                            stderr_buf
-                        });
-
-                        let mut stdout_buf = String::new();
-                        for line in stdout.lines().map_while(Result::ok) {
-                            if cb(&line) {
+        pub fn read_timeout(
+            &self,
+            timeout: time::Duration,
+            end_message: Option<&str>,
+        ) -> (Vec<(Channel, String)>, io::Result<ProcessStatus>) {
+            let mut messages = Vec::new();
+            loop {
+                let out = self.receiver.recv_timeout(timeout);
+                match out {
+                    Ok(item) => match item {
+                        ProcessNotification::Message(channel, message) => {
+                            // TODO channel
+                            if end_message.is_some_and(|expected| expected == message) {
                                 break;
                             }
-                            stdout_buf.push_str(&line);
-                            stdout_buf.push('\n');
+                            messages.push((channel, message));
                         }
-
-                        writeln!(stderr_writer, "please finish").unwrap();
-
-                        // if let Ok(Some(_)) = child.try_wait() {
-                        //     drop(stderr_writer);
-                        // }
-
-                        // dbg!();
-                        let stderr_buf = thread.join().unwrap();
-                        // dbg!();
-
-                        (stdout_buf, stderr_buf)
-                    });
-
-                    stdout_buf.truncate(stdout_buf.trim_end().len());
-                    stderr_buf.truncate(stderr_buf.trim_end().len());
-                    Ok((stdout_buf, stderr_buf))
+                        ProcessNotification::Completed => {
+                            return (messages, Ok(ProcessStatus::Finished));
+                        }
+                    },
+                    Err(_timeout) => {
+                        let result = Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "timed out reading notification",
+                        ));
+                        return (messages, result);
+                    }
                 }
             }
+
+            (messages, Ok(ProcessStatus::Continuing))
         }
 
-        pub fn read_to_end(self) -> io::Result<(String, String, ExitStatus)> {
-            match self {
-                CommandOut::Grouped(mut child, mut reader) => {
-                    let mut buf = String::new();
-                    reader.read_to_string(&mut buf)?;
-                    let status = child.wait()?;
-                    Ok((buf, String::default(), status))
-                }
-                CommandOut::Separated {
-                    mut child,
-                    mut stdout,
-                    mut stderr,
-                    stderr_writer,
-                } => {
-                    let mut stdout_buf = String::new();
-                    let mut stderr_buf = String::new();
-
-                    stdout.read_to_string(&mut stdout_buf)?;
-                    drop(stderr_writer);
-                    stderr.read_to_string(&mut stderr_buf)?;
-
-                    stdout_buf.truncate(stdout_buf.trim_end().len());
-                    stderr_buf.truncate(stderr_buf.trim_end().len());
-
-                    let status = child.wait()?;
-
-                    Ok((stdout_buf, stderr_buf, status))
-                }
-            }
+        pub fn end(mut self) -> io::Result<process::ExitStatus> {
+            let status = self.child.wait()?;
+            self.stdout_handle.join().unwrap();
+            self.stderr_handle.join().unwrap();
+            Ok(status)
         }
 
-        pub fn read_independent_to_end(self) -> io::Result<(Vec<(Channel, String)>, ExitStatus)> {
-            if let Self::Separated {
-                mut child,
-                stdout,
-                stderr,
-                stderr_writer: _,
-            } = self
-            {
-                let (tx, rx) = sync::mpsc::channel();
+        pub fn get_child_mut(&mut self) -> &mut process::Child {
+            &mut self.child
+        }
 
-                // Thread to read `stdout`
-                let tx_stdout = tx.clone();
-                thread::spawn(move || {
-                    for line in stdout.lines().map_while(Result::ok) {
-                        // TODO `expect` here
-                        tx_stdout
-                            .send((Channel::Stdout, line))
-                            .expect("Failed to send stdout");
-                    }
-                });
-
-                // Thread to read `stderr`
-                thread::spawn(move || {
-                    for line in stderr.lines().map_while(Result::ok) {
-                        // TODO `expect` here
-                        tx.send((Channel::Stderr, line))
-                            .expect("Failed to send stderr");
-                    }
-                });
-
-                let out: Vec<_> = rx.into_iter().collect();
-                let status = child.wait()?;
-
-                Ok((out, status))
+        pub fn is_running(&mut self) -> bool {
+            if let Ok(status) = self.child.try_wait() {
+                status.is_none()
             } else {
-                panic!("cannot read merged independently");
+                // hmm
+                true
             }
         }
     }

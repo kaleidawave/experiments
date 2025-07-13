@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [lib]
-name = "spectra_lib"
+name = "spectra"
 path = "src/lib.rs"
 
 [[bin]]
