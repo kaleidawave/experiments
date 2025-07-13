@@ -1,5 +1,3 @@
-#![warn(clippy::pedantic)]
-
 /// # Panics
 /// Panics if `right` is not an inner slice of `whole`
 #[must_use]
@@ -18,7 +16,8 @@ pub fn whole_line<'a>(whole: &'a str, inner: &'a str) -> &'a str {
         .rfind('\n')
         .map(|idx| idx + 1)
         .unwrap_or_default();
-    dbg!(&whole[previous_last_line..])
+
+    whole[previous_last_line..]
         .lines()
         .next()
         .unwrap_or_default()

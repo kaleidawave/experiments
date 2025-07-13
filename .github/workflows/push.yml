@@ -13,9 +13,16 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Check and test
-      run: |
-        cargo check
-        cargo test
-        cargo clippy
+    - uses: dtolnay/rust-toolchain@stable
+
+    - name: Check
+      run: cargo check
+      working-directory: ${{ matrix.project }}
+
+    - name: Test
+      run: cargo test
+      working-directory: ${{ matrix.project }}
+
+    - name: Lint
+      run: cargo clippy
       working-directory: ${{ matrix.project }}
