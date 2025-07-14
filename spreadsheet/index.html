@@ -5,6 +5,8 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Spreadsheet</title>
+	<link rel="icon" type="image/x-icon"
+		  href="data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='-1' y='15'%3E📈%3C/text%3E%3C/svg%3E">
 	<style>
 		body {
 			font-family: Inter;
@@ -75,6 +77,10 @@
 			user-select: none;
 		}
 
+		input[data-expression]:not(:focus) {
+			font-style: italic;
+		}
+
 		body.dragging {
 			cursor: w-resize;
 		}
@@ -126,6 +132,47 @@
 	<script type="module">
 		const table = document.querySelector("table>tbody");
 		const pre = document.querySelector("pre");
+
+		let socket = null;
+
+		try {
+			socket = new WebSocket("ws://localhost:8080");
+			socket.addEventListener("message", (event) => {
+				// TODO sanitisation
+				const [command, position, message, more] = event.data.toString().split(":");
+
+				const [xs, ys] = position.split(",");
+				const x = parseInt(xs);
+				const y = parseInt(ys);
+
+				const td = table.children[y].children[x + 1];
+				const input = td.firstElementChild;
+
+				{
+					let value = message;
+					if (command === "evaluation") {
+						const [expression, result] = message.split("=")
+						input.setAttribute("data-expression", expression);
+						value = result;
+					}
+
+					const lastValue = input.value;
+					input.value = value;
+					const next = asNumber(value);
+					const prev = asNumber(lastValue);
+
+					if (prev !== null && next !== null) {
+						changeNumber(prev, next, input)
+					}
+				}
+
+				const value = { command, x, y, message };
+				document.querySelector("pre").innerText = JSON.stringify(value);
+			});
+		} catch (error) {
+			console.error(error)
+		}
+
 		const w = table.previousElementSibling.firstElementChild.children.length - 1, h = 10;
 
 		function buildTable() {
@@ -180,6 +227,10 @@
 		let lastValue = "";
 
 		function onFocus(ev) {
+			const { target } = ev;
+			if (target.hasAttribute("data-expression")) {
+				ev.target.value = "=" + target.getAttribute("data-expression");
+			}
 			lastValue = ev.target.value;
 		}
 
@@ -188,20 +239,29 @@
 			const value = target.value;
 			const isExpression = value.startsWith("=");
 			if (isExpression) {
-
+				target.setAttribute("data-expression", value.slice(1));
 			} else {
-				const asFloat = parseFloat(value);
-				const isNumber = value === "" || !Number.isNaN(asFloat);
-				const last = parseFloat(lastValue);
+				const next = asNumber(value);
+				const prev = asNumber(lastValue);
+				const isNumber = next !== null;
 
-				if (isNumber && !Number.isNaN(last)) {
-					changeNumber(last, asFloat, target)
+				if (prev !== null && isNumber) {
+					changeNumber(prev, next, target)
 				}
 
 				// TODO set on input
 				target.classList.toggle("number", isNumber);
 				target.setAttribute("draggable", isNumber);
 			}
+
+			if (socket) {
+				const row = target.parentElement.parentElement;
+				// idx starts at 1 here because of leading, so we subtract 1
+				const x = Array.prototype.indexOf.call(row.children, target.parentElement) - 1;
+				const y = Array.prototype.indexOf.call(table.children, row);
+				socket.send(`update:${x},${y}:${value}`);
+			}
+
 			pre.innerText = JSON.stringify({ value, isExpression, ...ev });
 
 			lastValue = value;
@@ -262,6 +322,13 @@
 				];
 				element.animate(keyframes, { duration: 1000 });
 			}
+		}
+
+		function asNumber(value) {
+			if (value === "") return 0;
+			const v = parseFloat(value);
+			if (Number.isNaN(v)) return null;
+			return v
 		}
 	</script>
 </body>
