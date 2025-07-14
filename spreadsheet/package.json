@@ -1,0 +1,16 @@
+{
+  "name": "spreadsheet",
+  "version": "0.0.0",
+  "private": "true",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "run": "node index.js"
+  },
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@bengineering/mathematics-parser": "npm:@jsr/bengineering__mathematics-parser@^0.0.1",
+    "ws": "^8.18.3"
+  }
+}

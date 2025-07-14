@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Spreadsheet</title>
+	<link rel="icon" type="image/x-icon"
+		  href="data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='-1' y='15'%3E📈%3C/text%3E%3C/svg%3E">
+	<style>
+		body {
+			font-family: Inter;
+			padding: 100px;
+			width: max-content;
+		}
+
+		table {
+			border-collapse: collapse;
+			user-select: none;
+		}
+
+		th {
+			height: 28px;
+		}
+
+		td,
+		th {
+			padding: 0;
+			min-width: 100px;
+			border: 1px solid rgb(219, 219, 219);
+			font-size: 18px;
+		}
+
+		td:has(input) {
+			text-align: left;
+		}
+
+		td:has(input.number) {
+			text-align: right;
+		}
+
+		th:first-child,
+		td:first-child {
+			min-width: 60px;
+		}
+
+		td:first-child {
+			font-variant-numeric: tabular-nums;
+			text-align: center;
+		}
+
+		input {
+			font-family: inherit;
+			font-size: inherit;
+			border: 0;
+			background: none;
+			/* background-color: rgb(223, 138, 27); */
+			text-align: left;
+			width: 100px;
+			padding: 4px 8px;
+		}
+
+		input:focus {
+			outline: none;
+		}
+
+		input.number {
+			text-align: right;
+		}
+
+		input.number::selection {
+			background-color: transparent;
+		}
+
+		input.number:focus {
+			cursor: w-resize;
+			user-select: none;
+		}
+
+		input[data-expression]:not(:focus) {
+			font-style: italic;
+		}
+
+		body.dragging {
+			cursor: w-resize;
+		}
+
+		td:focus-within {
+			outline: 2px solid rgb(63, 106, 246);
+		}
+
+		th {
+			position: relative;
+		}
+
+		span.column-resize {
+			width: 30px;
+			display: inline-block;
+			position: absolute;
+			right: -15px;
+			cursor: w-resize;
+			height: 25px;
+			padding-top: 3px;
+			top: 0;
+			/* Appears earlier in hover */
+			z-index: 1;
+			opacity: 0;
+		}
+
+		span.column-resize:hover {
+			opacity: 1;
+		}
+	</style>
+</head>
+
+<body>
+	<table>
+		<thead>
+			<tr>
+				<th></th>
+				<th>A <span class="column-resize" draggable="true">| |</span> </th>
+				<th>B <span class="column-resize" draggable="true">| |</span> </th>
+				<th>C <span class="column-resize" draggable="true">| |</span> </th>
+				<th>D <span class="column-resize" draggable="true">| |</span> </th>
+			</tr>
+		</thead>
+		<tbody></tbody>
+	</table>
+	<canvas id="empty-image" height="0" width="0"></canvas>
+	<pre></pre>
+
+	<script type="module">
+		const table = document.querySelector("table>tbody");
+		const pre = document.querySelector("pre");
+
+		let socket = null;
+
+		try {
+			socket = new WebSocket("ws://localhost:8080");
+			socket.addEventListener("message", (event) => {
+				// TODO sanitisation
+				const [command, position, message, more] = event.data.toString().split(":");
+
+				const [xs, ys] = position.split(",");
+				const x = parseInt(xs);
+				const y = parseInt(ys);
+
+				const td = table.children[y].children[x + 1];
+				const input = td.firstElementChild;
+
+				{
+					let value = message;
+					if (command === "evaluation") {
+						const [expression, result] = message.split("=")
+						input.setAttribute("data-expression", expression);
+						value = result;
+					}
+
+					const lastValue = input.value;
+					input.value = value;
+					const next = asNumber(value);
+					const prev = asNumber(lastValue);
+
+					if (prev !== null && next !== null) {
+						changeNumber(prev, next, input)
+					}
+				}
+
+				const value = { command, x, y, message };
+				document.querySelector("pre").innerText = JSON.stringify(value);
+			});
+		} catch (error) {
+			console.error(error)
+		}
+
+		const w = table.previousElementSibling.firstElementChild.children.length - 1, h = 10;
+
+		function buildTable() {
+			for (let i = 1; i <= h; i++) {
+				const row = document.createElement("tr");
+				{
+					const item = document.createElement("td");
+					item.innerText = i.toString().padStart(2, "0");
+					row.append(item);
+				}
+				for (let j = 0; j < w; j++) {
+					const item = document.createElement("td");
+					{
+						const input = document.createElement("input");
+						input.setAttribute("type", "text");
+						input.setAttribute("title", "field");
+						input.setAttribute("name", `${i}:${j}`);
+						const isNumber = true;
+						input.classList.toggle("number", isNumber);
+						input.setAttribute("draggable", isNumber);
+						input.addEventListener("focus", onFocus);
+						input.addEventListener("blur", onBlur);
+						item.append(input);
+					}
+					row.append(item);
+				}
+				table.append(row);
+			}
+		}
+
+		buildTable()
+
+		document.body.addEventListener("keydown", (ev) => {
+			const { target } = ev;
+			if (target instanceof HTMLInputElement && target.closest("table")) {
+				// If tab
+				if (ev.keyCode === 13) {
+					const row = target.parentElement.parentElement;
+					// idx starts at 1 here because of leading
+					let idx = Array.prototype.indexOf.call(row.children, target.parentElement);
+					const rowToSelect = ev.shiftKey ? row.previousElementSibling : row.nextElementSibling;
+					if (rowToSelect) rowToSelect.children[idx].firstElementChild.focus();
+					ev.preventDefault();
+				}
+				// if (ev.keyCode === 9 && target.value === "") {
+
+				// }
+				pre.innerText = JSON.stringify({ key: ev.keyCode, ...ev });
+			}
+		});
+
+		let lastValue = "";
+
+		function onFocus(ev) {
+			const { target } = ev;
+			if (target.hasAttribute("data-expression")) {
+				ev.target.value = "=" + target.getAttribute("data-expression");
+			}
+			lastValue = ev.target.value;
+		}
+
+		function onBlur(ev) {
+			const { target } = ev;
+			const value = target.value;
+			const isExpression = value.startsWith("=");
+			if (isExpression) {
+				target.setAttribute("data-expression", value.slice(1));
+			} else {
+				const next = asNumber(value);
+				const prev = asNumber(lastValue);
+				const isNumber = next !== null;
+
+				if (prev !== null && isNumber) {
+					changeNumber(prev, next, target)
+				}
+
+				// TODO set on input
+				target.classList.toggle("number", isNumber);
+				target.setAttribute("draggable", isNumber);
+			}
+
+			if (socket) {
+				const row = target.parentElement.parentElement;
+				// idx starts at 1 here because of leading, so we subtract 1
+				const x = Array.prototype.indexOf.call(row.children, target.parentElement) - 1;
+				const y = Array.prototype.indexOf.call(table.children, row);
+				socket.send(`update:${x},${y}:${value}`);
+			}
+
+			pre.innerText = JSON.stringify({ value, isExpression, ...ev });
+
+			lastValue = value;
+		}
+
+		let start = null;
+		let currentColumn = null;
+		let currentInput = null;
+		let startValue = null;
+
+		// document.body.addEventListener("mousedown", (ev) => {
+		// 	pre.innerText = JSON.stringify({ target: ev.target.classList });
+		// })
+
+		document.body.addEventListener("dragstart", (ev) => {
+			const { target } = ev;
+			if (target instanceof HTMLInputElement && target.closest("table") && target.classList.contains("number")) {
+				start = ev.clientX;
+				if (target.value === "") target.value = "0";
+				startValue = parseFloat(target.value);
+				currentInput = target;
+				ev.dataTransfer.setDragImage(document.querySelector("#empty-image"), 0, 0);
+				// ev.dataTransfer.setImage none
+				// ev.dataTransfer.setData none
+				pre.innerText = JSON.stringify({ id: "started", startValue, ...ev });
+			} else if (target.classList.contains("column-resize")) {
+				start = ev.clientX;
+				currentColumn = target.parentElement;
+				startValue = currentColumn.getBoundingClientRect().width;
+			}
+		})
+		document.body.addEventListener("drag", (ev) => {
+			const { target } = ev;
+			// For some reason sometimes fired with (x, y) = (0, 0)
+			if (start !== null && !(ev.x === 0 && ev.y === 0)) {
+				if (currentInput) {
+					const offset = ev.clientX - start;
+					pre.innerText = JSON.stringify({ offset });
+					currentInput.value = startValue + offset;
+				} else if (currentColumn) {
+					const offset = ev.clientX - start;
+					currentColumn.style.width = `${startValue + offset}px`;
+				}
+			}
+		});
+
+		document.body.addEventListener("dragend", (ev) => {
+			start = null;
+			currentInput?.blur();
+			currentInput = null;
+		});
+
+		function changeNumber(last, next, element) {
+			if (last >= 0 && next < 0) {
+				const keyframes = [
+					{ background: "rgba(255, 29, 39, 0.6)" },
+					{ background: "none" }
+				];
+				element.animate(keyframes, { duration: 1000 });
+			}
+		}
+
+		function asNumber(value) {
+			if (value === "") return 0;
+			const v = parseFloat(value);
+			if (Number.isNaN(v)) return null;
+			return v
+		}
+	</script>
+</body>
+
+</html>
