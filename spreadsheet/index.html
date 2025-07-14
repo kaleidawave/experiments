@@ -9,13 +9,16 @@
 		body {
 			font-family: Inter;
 			padding: 100px;
+			width: max-content;
 		}
 
 		table {
 			border-collapse: collapse;
 			user-select: none;
-			width: 100%;
-			table-layout: auto;
+		}
+
+		th {
+			height: 28px;
 		}
 
 		td,
@@ -26,7 +29,11 @@
 			font-size: 18px;
 		}
 
-		td {
+		td:has(input) {
+			text-align: left;
+		}
+
+		td:has(input.number) {
 			text-align: right;
 		}
 
@@ -44,18 +51,23 @@
 			font-family: inherit;
 			font-size: inherit;
 			border: 0;
-			text-align: center;
-			width: auto;
 			background: none;
-			padding: 4px 0;
+			/* background-color: rgb(223, 138, 27); */
+			text-align: left;
+			width: 100px;
+			padding: 4px 8px;
 		}
 
 		input:focus {
 			outline: none;
 		}
 
+		input.number {
+			text-align: right;
+		}
+
 		input.number::selection {
-			background-color: transparent
+			background-color: transparent;
 		}
 
 		input.number:focus {
@@ -63,8 +75,34 @@
 			user-select: none;
 		}
 
+		body.dragging {
+			cursor: w-resize;
+		}
+
 		td:focus-within {
 			outline: 2px solid rgb(63, 106, 246);
+		}
+
+		th {
+			position: relative;
+		}
+
+		span.column-resize {
+			width: 30px;
+			display: inline-block;
+			position: absolute;
+			right: -15px;
+			cursor: w-resize;
+			height: 25px;
+			padding-top: 3px;
+			top: 0;
+			/* Appears earlier in hover */
+			z-index: 1;
+			opacity: 0;
+		}
+
+		span.column-resize:hover {
+			opacity: 1;
 		}
 	</style>
 </head>
@@ -74,14 +112,15 @@
 		<thead>
 			<tr>
 				<th></th>
-				<th>A</th>
-				<th>B</th>
-				<th>C</th>
-				<th>D</th>
+				<th>A <span class="column-resize" draggable="true">| |</span> </th>
+				<th>B <span class="column-resize" draggable="true">| |</span> </th>
+				<th>C <span class="column-resize" draggable="true">| |</span> </th>
+				<th>D <span class="column-resize" draggable="true">| |</span> </th>
 			</tr>
 		</thead>
 		<tbody></tbody>
 	</table>
+	<canvas id="empty-image" height="0" width="0"></canvas>
 	<pre></pre>
 
 	<script type="module">
@@ -89,28 +128,35 @@
 		const pre = document.querySelector("pre");
 		const w = table.previousElementSibling.firstElementChild.children.length - 1, h = 10;
 
-		for (let i = 1; i <= h; i++) {
-			const row = document.createElement("tr");
-			{
-				const item = document.createElement("td");
-				item.innerText = i.toString().padStart(2, "0");
-				row.append(item);
-			}
-			for (let j = 0; j < w; j++) {
-				const item = document.createElement("td");
+		function buildTable() {
+			for (let i = 1; i <= h; i++) {
+				const row = document.createElement("tr");
 				{
-					const input = document.createElement("input");
-					input.setAttribute("type", "text");
-					input.setAttribute("title", "field");
-					input.setAttribute("name", `${i}:${j}`);
-					input.addEventListener("focus", onFocus);
-					input.addEventListener("blur", onBlur);
-					item.append(input);
+					const item = document.createElement("td");
+					item.innerText = i.toString().padStart(2, "0");
+					row.append(item);
 				}
-				row.append(item);
+				for (let j = 0; j < w; j++) {
+					const item = document.createElement("td");
+					{
+						const input = document.createElement("input");
+						input.setAttribute("type", "text");
+						input.setAttribute("title", "field");
+						input.setAttribute("name", `${i}:${j}`);
+						const isNumber = true;
+						input.classList.toggle("number", isNumber);
+						input.setAttribute("draggable", isNumber);
+						input.addEventListener("focus", onFocus);
+						input.addEventListener("blur", onBlur);
+						item.append(input);
+					}
+					row.append(item);
+				}
+				table.append(row);
 			}
-			table.append(row);
 		}
+
+		buildTable()
 
 		document.body.addEventListener("keydown", (ev) => {
 			const { target } = ev;
@@ -145,7 +191,7 @@
 
 			} else {
 				const asFloat = parseFloat(value);
-				const isNumber = !Number.isNaN(asFloat);
+				const isNumber = value === "" || !Number.isNaN(asFloat);
 				const last = parseFloat(lastValue);
 
 				if (isNumber && !Number.isNaN(last)) {
@@ -154,7 +200,7 @@
 
 				// TODO set on input
 				target.classList.toggle("number", isNumber);
-				ev.target.setAttribute("draggable", isNumber)
+				target.setAttribute("draggable", isNumber);
 			}
 			pre.innerText = JSON.stringify({ value, isExpression, ...ev });
 
@@ -162,40 +208,50 @@
 		}
 
 		let start = null;
-		let current = null;
+		let currentColumn = null;
+		let currentInput = null;
 		let startValue = null;
+
+		// document.body.addEventListener("mousedown", (ev) => {
+		// 	pre.innerText = JSON.stringify({ target: ev.target.classList });
+		// })
+
 		document.body.addEventListener("dragstart", (ev) => {
 			const { target } = ev;
 			if (target instanceof HTMLInputElement && target.closest("table") && target.classList.contains("number")) {
 				start = ev.clientX;
+				if (target.value === "") target.value = "0";
 				startValue = parseFloat(target.value);
-				current = target;
+				currentInput = target;
+				ev.dataTransfer.setDragImage(document.querySelector("#empty-image"), 0, 0);
 				// ev.dataTransfer.setImage none
 				// ev.dataTransfer.setData none
 				pre.innerText = JSON.stringify({ id: "started", startValue, ...ev });
+			} else if (target.classList.contains("column-resize")) {
+				start = ev.clientX;
+				currentColumn = target.parentElement;
+				startValue = currentColumn.getBoundingClientRect().width;
 			}
 		})
 		document.body.addEventListener("drag", (ev) => {
 			const { target } = ev;
 			// For some reason sometimes fired with (x, y) = (0, 0)
 			if (start !== null && !(ev.x === 0 && ev.y === 0)) {
-				const offset = ev.clientX - start;
-				pre.innerText = JSON.stringify({ offset });
-				current.value = startValue + offset;
+				if (currentInput) {
+					const offset = ev.clientX - start;
+					pre.innerText = JSON.stringify({ offset });
+					currentInput.value = startValue + offset;
+				} else if (currentColumn) {
+					const offset = ev.clientX - start;
+					currentColumn.style.width = `${startValue + offset}px`;
+				}
 			}
 		});
 
 		document.body.addEventListener("dragend", (ev) => {
 			start = null;
-			current?.blur();
-			current = null;
-		});
-
-		// TODO wip
-		document.body.addEventListener("drop", (ev) => {
-			if (start !== null) {
-				ev.preventDefault();
-			}
+			currentInput?.blur();
+			currentInput = null;
 		});
 
 		function changeNumber(last, next, element) {
