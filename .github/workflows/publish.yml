@@ -14,13 +14,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 'latest'
 
       - name: Run check
         run: cargo check
         working-directory: ${{ matrix.library }}
+
+      # test setup
+      - uses: oven-sh/setup-bun@v2
+      - name: Run setup
+        run: cargo build --example example_stdin_stdout_program
+      # end test setup
 
       - name: Run test
         run: cargo test
@@ -77,6 +80,9 @@ jobs:
   publish-crates:
     permissions: write-all
     needs: check
+
+    # Needs `simple-markdown-parser` update
+    if: false
 
     strategy:
       matrix:

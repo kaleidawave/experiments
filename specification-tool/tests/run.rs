@@ -22,13 +22,13 @@ fn pass_stdout_stderr() {
     let tests = extract_tests(SPECIFICATION_UPPERCASE, false);
 
     let mut runner = Command::new(
-        "bun run examples/example_stdin_stdout_program.js --uppercase --stdin-stdout-communication",
+        "bun run examples/example_stdin_stdout_program.js --uppercase --rpc",
     );
     let results = run_tests(&tests, &mut runner, &RunConfiguration::default());
     assert!(results.failures.is_empty());
 
     let mut runner = Command::new(
-        "bun run examples/example_stdin_stdout_program.js --stdin-stdout-communication",
+        "bun run examples/example_stdin_stdout_program.js --rpc",
     );
     let results = run_tests(&tests, &mut runner, &RunConfiguration::default());
     assert_eq!(results.failures.len(), 3);
@@ -57,15 +57,19 @@ fn pass_lists() {
 fn program_crash() {
     let tests = extract_tests(SPECIFICATION_UPPERCASE, false);
 
-    let mut runner = Command::new(
-        "bun run examples/example_stdin_stdout_program.js --uppercase --stdin-stdout-communication --intentional-crash",
-    );
-    let results = run_tests(&tests, &mut runner, &RunConfiguration::default());
-    assert_eq!(results.failures.len(), 1);
-    assert_eq!(
-        results.failures.get(0).map(|(lhs, _rhs)| lhs.as_str()),
-        Some("Test 2")
-    );
+    let commands: &[&str] = &[
+        "bun run examples/example_stdin_stdout_program.js --uppercase --rpc --intentional-crash",
+        "./target/debug/examples/example_stdin_stdout_program --uppercase --rpc --intentional-crash"
+    ];
+
+    for mut runner in commands.iter().copied().map(Command::new) {
+        let results = run_tests(&tests, &mut runner, &RunConfiguration::default());
+        assert_eq!(results.failures.len(), 1);
+        assert_eq!(
+            results.failures.get(0).map(|(lhs, _rhs)| lhs.as_str()),
+            Some("Test 2")
+        );
+    }
 }
 
 #[test]
@@ -73,14 +77,14 @@ fn program_timeout() {
     let tests = extract_tests(SPECIFICATION_UPPERCASE, false);
 
     let mut runner = Command::new(
-        "bun run examples/example_stdin_stdout_program.js --uppercase --stdin-stdout-communication --intentional-timeout --timeout 1000",
+        "bun run examples/example_stdin_stdout_program.js --uppercase --rpc --intentional-timeout --timeout 1000",
     );
     let results = run_tests(&tests, &mut runner, &RunConfiguration::default());
     // test 2 does not run in under 1000 ms
-    assert_eq!(&results.failures, &[("Test 2".into(), "".into())]);
+    assert_eq!(&results.failures, &[("Test 2".into(), "PROCESS TIMED OUT".into())]);
 
     let mut runner = Command::new(
-        "bun run examples/example_stdin_stdout_program.js --uppercase --stdin-stdout-communication --intentional-timeout --timeout 5000",
+        "bun run examples/example_stdin_stdout_program.js --uppercase --rpc --intentional-timeout --timeout 5000",
     );
 
     let results = run_tests(&tests, &mut runner, &RunConfiguration::default());
@@ -91,13 +95,17 @@ fn program_timeout() {
 fn program_options() {
     let tests = extract_tests(SPECIFICATION_OPTIONS, false);
 
-    let mut runner = Command::new(
-        "bun run examples/example_stdin_stdout_program.js --uppercase --stdin-stdout-communication",
-    );
-    let results = run_tests(&tests, &mut runner, &RunConfiguration::default());
-    assert!(
-        &results.failures.is_empty(),
-        "found failures {failures:#?}",
-        failures = &results.failures
-    );
+    let commands: &[&str] = &[
+        "bun run examples/example_stdin_stdout_program.js --uppercase --rpc",
+        "./target/debug/examples/example_stdin_stdout_program --uppercase --rpc"
+    ];
+
+    for mut runner in commands.iter().copied().map(Command::new) {
+        let results = run_tests(&tests, &mut runner, &RunConfiguration::default());
+        assert!(
+            &results.failures.is_empty(),
+            "found failures {failures:#?}",
+            failures = &results.failures
+        );
+    }
 }

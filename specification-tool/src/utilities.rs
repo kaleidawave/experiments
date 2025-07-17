@@ -109,15 +109,13 @@ pub mod commands {
             let stdout_handle = thread::spawn(move || {
                 for line in stdout.lines().map_while(Result::ok) {
                     // TODO `expect` here
-                    sender_stdout
-                        .send(ProcessNotification::Message(Channel::Stdout, line))
-                        .expect("Failed to send stdout");
+                    let _ = sender_stdout
+                        .send(ProcessNotification::Message(Channel::Stdout, line));
                 }
 
                 // TODO `expect` here
-                sender_stdout
-                    .send(ProcessNotification::Completed)
-                    .expect("Failed to send stdout");
+                let _ = sender_stdout
+                    .send(ProcessNotification::Completed);
             });
 
             // Thread to read `stderr`

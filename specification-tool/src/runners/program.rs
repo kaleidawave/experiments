@@ -126,18 +126,17 @@ impl Runner for Command {
             let timeout = self.timeout.unwrap_or(time::Duration::MAX);
             let (messages, res) = running.process.read_timeout(timeout, Some("end"));
 
-            // TODO WIP
-            let is_err = messages
-                .last()
-                .is_some_and(|(_, line)| line.starts_with("error: "));
+            // TODO?
+            // let is_err = messages
+            //     .last()
+            //     .is_some_and(|(_, line)| line.starts_with("error: "));
 
-            let is_err = is_err || res.is_err();
+            let mut timed_out = false;
 
-            // TODO more information
             let command_no_longer_running: bool = match res {
                 Ok(status) => status == commands::ProcessStatus::Finished,
                 Err(err) => {
-                    let timed_out = err.kind() == std::io::ErrorKind::TimedOut;
+                    timed_out = err.kind() == std::io::ErrorKind::TimedOut;
                     if timed_out {
                         let _ = running.process.get_child_mut().kill();
                     }
@@ -146,31 +145,42 @@ impl Runner for Command {
             };
 
             if command_no_longer_running {
-                eprintln!("restarting after timeout or crash");
+                // eprintln!("restarting after timeout or crash");
                 let running = self.spawn();
                 let _ = self.currently_running.insert(running);
             }
 
-            let mut buf = String::new();
-            for (channel, message) in messages {
-                match channel {
-                    commands::Channel::Stdout => {
-                        buf.push_str(&message);
-                        buf.push('\n');
-                    }
-                    commands::Channel::Stderr if test.merge_stderr => {
-                        buf.push('[');
-                        buf.push_str(&message);
-                        buf.push(']');
-                        buf.push('\n');
-                    }
-                    commands::Channel::Stderr => {}
+
+            let buf = {
+                use std::fmt::Write;
+
+                let mut buf = String::new();
+    
+                if timed_out {
+                    writeln!(&mut buf, "PROCESS TIMED OUT").unwrap();
                 }
-            }
 
-            buf.truncate(buf.trim_end().len());
+                for (channel, message) in messages {
+                    match channel {
+                        commands::Channel::Stdout => {
+                            writeln!(&mut buf, "{message}").unwrap();
+                        }
+                        commands::Channel::Stderr => {
+                            if test.merge_stderr {
+                                writeln!(&mut buf, "[{message}]").unwrap();
+                            } else if command_no_longer_running {
+                                writeln!(&mut buf, "* {message}").unwrap();
+                            }
+                        }
+                    }
+                }
+    
+                buf.truncate(buf.trim_end().len());
 
-            if is_err { Err(buf) } else { Ok(buf) }
+                buf
+            };
+
+            if command_no_longer_running { Err(buf) } else { Ok(buf) }
         } else {
             let arguments = self.arguments.iter().map(|argument| {
                 let argument = argument.as_str();
@@ -192,36 +202,36 @@ impl Runner for Command {
             let (messages, res) = command.read_timeout(timeout, None);
 
             // TODO WIP
-            let is_err = messages
-                .last()
-                .is_some_and(|(_, line)| line.starts_with("error: "));
+            // let is_err = messages
+            //     .last()
+            //     .is_some_and(|(_, line)| line.starts_with("error: "));
 
-            let is_err = is_err || res.is_err();
-
-            if is_err {
-                let exit_code = res;
-                Err(format!("Command failed with {exit_code:?}\n{messages:?}"))
-            } else {
-                if test.expected.is_none() && !messages.is_empty() {
-                    eprintln!(
-                        "Possibly unexpected stdout output {messages:?} from {name}",
-                        name = test.name
-                    );
-                }
-
-                let mut buf = String::new();
-                for (channel, message) in messages {
-                    // let append = test.merge_stderr
-                    let append = channel == commands::Channel::Stdout;
-                    if append {
-                        buf.push_str(&message);
-                        buf.push('\n');
+            match res {
+                Ok(_) => {
+                    if test.expected.is_none() && !messages.is_empty() {
+                        eprintln!(
+                            "Possibly unexpected stdout output {messages:?} from {name}",
+                            name = test.name
+                        );
                     }
+
+                    let mut buf = String::new();
+                    for (channel, message) in messages {
+                        // let append = test.merge_stderr
+                        let append = channel == commands::Channel::Stdout;
+                        if append {
+                            buf.push_str(&message);
+                            buf.push('\n');
+                        }
+                    }
+
+                    buf.truncate(buf.trim_end().len());
+
+                    Ok(buf)
                 }
-
-                buf.truncate(buf.trim_end().len());
-
-                Ok(buf)
+                Err(err) => {
+                    Err(format!("Command failed with {err:?}\n{messages:?}"))
+                }
             }
         }
     }
