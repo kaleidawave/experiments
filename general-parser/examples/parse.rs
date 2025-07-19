@@ -1,4 +1,4 @@
-use general_parser::{Configuration, BinaryOperator, Expression};
+use general_parser::{BinaryOperator, Configuration, Expression};
 
 fn main() {
 	let configuration = Configuration {
@@ -15,11 +15,8 @@ fn main() {
 			Expression::from_string(&source, &configuration, &allocator);
 		eprintln!("{expression:#?}");
 	} else {
-		let sources: &[&str] = &[
-			"(x (a * b) (d * 2 + e))",
-			"(x (a b) (c d e))"
-		];
-	
+		let sources: &[&str] = &["(x (a * b) (d * 2 + e))", "(x (a b) (c d e))"];
+
 		for source in sources {
 			let allocator = bumpalo::Bump::new();
 			let expression: Expression<&str> =

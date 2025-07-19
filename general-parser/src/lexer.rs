@@ -32,10 +32,10 @@ impl<'a> Lexer<'a> {
 		if let Some(rest) = current.strip_prefix('"') {
 			let next = rest.find('"').unwrap();
 			self.advance(next + 2);
-			&current[..(next+2)]
+			&current[..(next + 2)]
 		} else {
 			for (idx, chr) in current.char_indices() {
-				if !(chr.is_alphanumeric() || matches!(chr, '.')){
+				if !(chr.is_alphanumeric() || matches!(chr, '.')) {
 					self.advance(idx);
 					return &current[..idx];
 				}

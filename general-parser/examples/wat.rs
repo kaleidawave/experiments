@@ -36,7 +36,7 @@ impl<'a> general_parser::Literal<'a> for WASMValue<'a> {
 			Self::Index(idx)
 		} else if let Ok(idx) = on.parse::<f64>() {
 			Self::Float(idx)
-		}  else if let Some(on) = on.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')) {
+		} else if let Some(on) = on.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')) {
 			Self::String(on)
 		} else if on.contains('.') {
 			// TODO check

@@ -1,4 +1,4 @@
-use crate::{Configuration, Lexer, Literal};
+use crate::{Allocator, Configuration, Lexer, Literal};
 
 #[cfg(not(feature = "stable"))]
 use std::alloc::Allocator as AllocatorTrait;
@@ -61,38 +61,46 @@ where
 			if reader.starts_with(")") {
 				reader.advance(1);
 			} else {
-				panic!("no close paren {current:?}", current=reader.current());
+				panic!("no close paren {current:?}", current = reader.current());
 			};
 
 			value
 		} else {
 			let identifier = reader.parse_identifier();
-			
-			if let Some(ref adjacency) = config.adjacency && !adjacency.functions.contains(&identifier) {
+
+			if let Some(ref adjacency) = config.adjacency
+				&& !adjacency.functions.contains(&identifier)
+			{
 				let mut chars = identifier.char_indices();
-				
+
 				let first: Self = {
 					let (idx, chr) = chars.next().unwrap();
 					let identifier = &identifier[idx..(idx + chr.len_utf8())];
 					Expression { on: T::from_str(identifier), arguments: Vec::new_in(allocator) }
 				};
-				
+
 				let mut top = first;
 
 				for (idx, chr) in chars {
 					let identifier = &identifier[idx..(idx + chr.len_utf8())];
-					let rhs = Expression { on: T::from_str(identifier), arguments: Vec::new_in(allocator) };
+					let rhs = Expression {
+						on: T::from_str(identifier),
+						arguments: Vec::new_in(allocator),
+					};
 
 					let mut arguments = Vec::new_in(allocator);
 					arguments.push(top);
 					arguments.push(rhs);
-					top = Expression { on: T::from_str(adjacency.operator.representation), arguments };
+					top = Expression {
+						on: T::from_str(adjacency.operator.representation),
+						arguments,
+					};
 				}
 
 				top
 			} else {
 				let on = T::from_str(identifier);
-	
+
 				let mut arguments = Vec::new_in(allocator);
 				// TODO WIP
 				if precedence == 0 {
@@ -102,7 +110,7 @@ where
 						arguments.push(expression);
 					}
 				}
-	
+
 				Expression { on, arguments }
 			}
 		};
@@ -129,8 +137,12 @@ where
 
 				reader.advance(operator.representation.len());
 				let lhs = top;
-				let rhs =
-					Self::from_reader_with_precedence(reader, config, allocator, operator.precedence);
+				let rhs = Self::from_reader_with_precedence(
+					reader,
+					config,
+					allocator,
+					operator.precedence,
+				);
 
 				let mut arguments = Vec::new_in(allocator);
 				arguments.push(lhs);
@@ -152,15 +164,20 @@ where
 					arguments.push(top);
 
 					top = Expression { on: T::from_str(operator.representation), arguments };
-				} else if reader
-					.current()
-					.starts_with(|chr: char| matches!(chr, '(')) && let Some(adjacency) = &config.adjacency {
+				} else if reader.current().starts_with('(')
+					&& let Some(adjacency) = &config.adjacency
+				{
 					let operator = adjacency.operator;
 					if return_precedence > operator.precedence {
 						return top;
 					}
 
-					let rhs = Self::from_reader_with_precedence(reader, config, allocator, operator.precedence);
+					let rhs = Self::from_reader_with_precedence(
+						reader,
+						config,
+						allocator,
+						operator.precedence,
+					);
 					let mut arguments = Vec::new_in(allocator);
 					arguments.push(top);
 					arguments.push(rhs);
