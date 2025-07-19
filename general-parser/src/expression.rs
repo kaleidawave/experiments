@@ -1,12 +1,10 @@
 use crate::{Configuration, Lexer, Literal};
 
-#[cfg(not(feature = "nightly"))]
-use allocator_api2::{vec::Vec};
-
-#[cfg(feature = "nightly")]
+#[cfg(not(feature = "stable"))]
 use std::alloc::Allocator as AllocatorTrait;
 
-pub type Allocator = bumpalo::Bump;
+#[cfg(feature = "stable")]
+use allocator_api2::vec::Vec;
 
 #[derive(Debug)]
 pub struct Expression<'a, T> {

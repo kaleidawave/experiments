@@ -2,13 +2,11 @@
 name = "general-parser"
 version = "0.0.1"
 edition = "2024"
-publish = false
 
 [features]
-default = ["to_string"]
-nightly = []
-to_string = []
+default = ["stable"]
+stable = ["dep:allocator-api2", "bumpalo/allocator-api2"]
 
 [dependencies]
-allocator-api2 = "=0.2.21"
-bumpalo = { version = "3.19.0", features = ["allocator-api2", "collections"] }
+allocator-api2 = { version = "=0.2.21", optional = true }
+bumpalo = { version = "3.19.0", features = ["collections"] }
