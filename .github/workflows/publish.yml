@@ -42,7 +42,7 @@ jobs:
         run: |
           echo "GITHUB_RUN_DATE=$(TZ="Europe/London" date +"%Y-%m-%d %T")" >> "$GITHUB_OUTPUT"
           echo "GIT_LAST_COMMIT=$(git log -n 1 --format="%H")" >> "$GITHUB_OUTPUT"
-          IFS='~' read -r binary example <<< '${{ matrix.binary }}''
+          IFS='~' read -r binary example <<< '${{ matrix.binary }}'
           echo "WORKING_DIRECTORY=$binary" >> "$GITHUB_OUTPUT"
           if [ -n "$example" ]; then
             echo "BUILD_SPECIFIER=--example $example" >> "$GITHUB_OUTPUT"
