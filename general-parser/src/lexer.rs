@@ -25,18 +25,25 @@ impl<'a> Lexer<'a> {
 		}
 	}
 
+	// TODO some of these temp
 	pub(crate) fn parse_identifier(&mut self) -> &'a str {
 		self.skip();
 		let current = self.current();
-		for (idx, chr) in current.char_indices() {
-			if !chr.is_alphanumeric() {
-				self.advance(idx);
-				return &current[..idx];
+		if let Some(rest) = current.strip_prefix('"') {
+			let next = rest.find('"').unwrap();
+			self.advance(next + 2);
+			&current[..(next+2)]
+		} else {
+			for (idx, chr) in current.char_indices() {
+				if !(chr.is_alphanumeric() || matches!(chr, '.')){
+					self.advance(idx);
+					return &current[..idx];
+				}
 			}
+			self.advance(current.len());
+			assert!(!current.is_empty(), "empty identifier");
+			current
 		}
-		self.advance(current.len());
-		// TODO assert non empty
-		current
 	}
 
 	pub(crate) fn starts_with(&mut self, slice: &str) -> bool {
@@ -50,9 +57,10 @@ impl<'a> Lexer<'a> {
 		if is_not_actually_operator { false } else { matches }
 	}
 
-	pub(crate) fn starts_with_chr(&mut self, chr: char) -> bool {
+	pub(crate) fn starts_with_value(&mut self) -> bool {
 		self.skip();
-		self.current().starts_with(chr)
+		let current = self.current();
+		current.starts_with(|chr: char| chr.is_alphanumeric() || matches!(chr, '"' | '(' | '['))
 	}
 
 	pub(crate) fn advance(&mut self, idx: usize) {

@@ -1,147 +1,128 @@
-use crate::{Configuration, Lexer};
+use crate::{Configuration, Lexer, Literal};
 
-#[derive(Debug, Clone)]
-pub enum Expression<'a> {
-	Identifier {
-		prefix: Option<char>,
-		name: &'a str,
-	},
-	/// TODO more config
-	Grouped {
-		values: Vec<Self>,
-	},
-	Application {
-		on: Box<Self>,
-		argument: Box<Self>,
-	},
+#[cfg(not(feature = "nightly"))]
+use allocator_api2::{vec::Vec};
+
+#[cfg(feature = "nightly")]
+use std::alloc::Allocator as AllocatorTrait;
+
+pub type Allocator = bumpalo::Bump;
+
+#[derive(Debug)]
+pub struct Expression<'a, T> {
+	pub on: T,
+	pub arguments: Vec<Expression<'a, T>, &'a Allocator>,
 }
 
-// TODO results her
-impl<'a> Expression<'a> {
-	pub fn from_string(source: &'a str, config: &Configuration) -> Self {
+impl<'a, T> Expression<'a, T>
+where
+	T: Literal<'a>,
+{
+	pub fn from_string(source: &'a str, config: &Configuration, allocator: &'a Allocator) -> Self {
 		let mut reader = Lexer::new(source);
-		let this = Self::from_reader_precedence(&mut reader, config, 0);
+		let this = Self::from_reader(&mut reader, config, allocator);
 		if !reader.finished() {
 			panic!("not finished {}", reader.current());
 		}
 		this
 	}
 
-	pub fn from_reader(reader: &mut Lexer<'a>, config: &Configuration) -> Self {
-		Self::from_reader_precedence(reader, config, 0)
-	}
-
-	pub(crate) fn from_reader_precedence(
+	pub fn from_reader(
 		reader: &mut Lexer<'a>,
 		config: &Configuration,
+		allocator: &'a Allocator,
+	) -> Self {
+		Self::from_reader_with_precedence(reader, config, allocator, 0)
+	}
+
+	pub(crate) fn from_reader_with_precedence(
+		reader: &mut Lexer<'a>,
+		config: &Configuration,
+		allocator: &'a Allocator,
 		precedence: u8,
 	) -> Self {
-		// TODO numbers, strings
 		let operator = config
-			.unary_operators
+			.prefix_unary_operators
 			.iter()
-			.find(|operator| operator.prefix && reader.starts_with(operator.representation));
+			.find(|operator| reader.starts_with(operator.representation));
 
-		let acc = if let Some(operator) = operator {
+		let top = if let Some(operator) = operator {
 			// hmm
 			// if precedence > operator.precedence {
 			//     return top;
 			// }
 			reader.advance(operator.representation.len());
-			let operand = Self::from_reader_precedence(reader, config, operator.precedence);
-			Expression::new_unary_operator(operator.representation, operand)
+			let operand =
+				Self::from_reader_with_precedence(reader, config, allocator, operator.precedence);
+			let mut arguments: Vec<Expression<_>, &Allocator> = Vec::new_in(allocator);
+			arguments.push(operand);
+			Expression { on: T::from_str(operator.representation), arguments }
 		} else if reader.starts_with("(") {
 			reader.advance(1);
-			let mut values = Vec::new();
-			let mut expr = None;
-			while !reader.finished() {
-				if reader.starts_with(")") {
-					reader.advance(1);
-					expr = Some(Self::Grouped { values });
-					break;
-				}
-				if !values.is_empty() {
-					if reader.starts_with(",") {
-						reader.advance(1);
-					} else {
-						panic!("no comma")
-					}
-				}
-				let value = Expression::from_reader(reader, config);
-				values.push(value);
-			}
-			if let Some(expr) = expr { expr } else { panic!("no close paren") }
+			let value = Expression::from_reader(reader, config, allocator);
+			if reader.starts_with(")") {
+				reader.advance(1);
+			} else {
+				panic!("no close paren {current:?}", current=reader.current());
+			};
+
+			value
 		} else {
-			// TODO number
-			let prefix = config
-				.identifier_prefixes
-				.iter()
-				.find(|chr| reader.starts_with_chr(**chr))
-				.copied();
+			let identifier = reader.parse_identifier();
+			
+			if let Some(ref adjacency) = config.adjacency && !adjacency.functions.contains(&identifier) {
+				let mut chars = identifier.char_indices();
+				
+				let first: Self = {
+					let (idx, chr) = chars.next().unwrap();
+					let identifier = &identifier[idx..(idx + chr.len_utf8())];
+					Expression { on: T::from_str(identifier), arguments: Vec::new_in(allocator) }
+				};
+				
+				let mut top = first;
 
-			if let Some(ref prefix) = prefix {
-				reader.advance(prefix.len_utf8());
-			}
-
-			let name = reader.parse_identifier();
-
-			if let Some(ref adjacency) = config.adjacency {
-				// TODO skip if in thingy
-				// TODO split by prefix
-				// We reverse to preserve ltr associativity
-				let mut chars = name.char_indices().rev();
-				let (idx, chr) = chars.next().unwrap();
-				let mut top = Self::Identifier { prefix, name: &name[idx..(idx + chr.len_utf8())] };
 				for (idx, chr) in chars {
-					let rhs = Self::Identifier { prefix, name: &name[idx..(idx + chr.len_utf8())] };
-					top = Expression::new_binary_operator(
-						adjacency.operator.representation,
-						rhs,
-						top,
-					);
+					let identifier = &identifier[idx..(idx + chr.len_utf8())];
+					let rhs = Expression { on: T::from_str(identifier), arguments: Vec::new_in(allocator) };
+
+					let mut arguments = Vec::new_in(allocator);
+					arguments.push(top);
+					arguments.push(rhs);
+					top = Expression { on: T::from_str(adjacency.operator.representation), arguments };
 				}
+
 				top
 			} else {
-				Self::Identifier { prefix, name }
+				let on = T::from_str(identifier);
+	
+				let mut arguments = Vec::new_in(allocator);
+				// TODO WIP
+				if precedence == 0 {
+					while reader.starts_with_value() {
+						let expression =
+							Self::from_reader_with_precedence(reader, config, allocator, 1);
+						arguments.push(expression);
+					}
+				}
+	
+				Expression { on, arguments }
 			}
 		};
-		Self::from_reader_first(reader, config, precedence, acc)
+		Self::append_operators(reader, config, allocator, precedence, top)
 	}
 
-	pub fn new_unary_operator(operation: &'static str, operand: Expression<'a>) -> Self {
-		let on = Expression::Identifier { prefix: None, name: operation };
-		Expression::Application { on: Box::new(on), argument: Box::new(operand) }
-	}
-
-	pub fn new_binary_operator(
-		operation: &'static str,
-		lhs: Expression<'a>,
-		rhs: Expression<'a>,
-	) -> Self {
-		let on = Expression::Identifier { prefix: None, name: operation };
-		let lhs = Expression::Application { on: Box::new(on), argument: Box::new(lhs) };
-		Expression::Application { on: Box::new(lhs), argument: Box::new(rhs) }
-	}
-
-	// TODO result
-	pub(crate) fn from_reader_first(
+	fn append_operators(
 		reader: &mut Lexer<'a>,
 		config: &Configuration,
+		allocator: &'a Allocator,
 		return_precedence: u8,
 		mut top: Self,
 	) -> Self {
-		// TODO postfix operators
 		while !reader.finished() {
-			reader.skip();
 			let binary_operator = config
 				.binary_operators
 				.iter()
 				.find(|operator| reader.starts_with(operator.representation));
-
-			let unary_operator = config
-				.unary_operators
-				.iter()
-				.find(|operator| !operator.prefix && reader.starts_with(operator.representation));
 
 			if let Some(operator) = binary_operator {
 				if return_precedence > operator.precedence {
@@ -150,72 +131,47 @@ impl<'a> Expression<'a> {
 
 				reader.advance(operator.representation.len());
 				let lhs = top;
-				let rhs = Self::from_reader_precedence(reader, config, operator.precedence);
-				top = Expression::new_binary_operator(operator.representation, lhs, rhs);
-			} else if let Some(operator) = unary_operator {
-				if return_precedence > operator.precedence {
-					return top;
-				}
-				reader.advance(operator.representation.len());
-				top = Expression::new_unary_operator(operator.representation, top);
-			} else if reader
-				.current()
-				.starts_with(|chr: char| chr.is_ascii_alphanumeric() || matches!(chr, '('))
-			{
-				if let Some(crate::configuration::Adjacency { operator, functions: _ }) =
-					config.adjacency
-				{
-					// TODO functions
-					// TODO backwards ...?
+				let rhs =
+					Self::from_reader_with_precedence(reader, config, allocator, operator.precedence);
+
+				let mut arguments = Vec::new_in(allocator);
+				arguments.push(lhs);
+				arguments.push(rhs);
+
+				top = Expression { on: T::from_str(operator.representation), arguments };
+			} else {
+				let unary_operator = config
+					.postfix_unary_operators
+					.iter()
+					.find(|operator| reader.starts_with(operator.representation));
+
+				if let Some(operator) = unary_operator {
+					if return_precedence > operator.precedence {
+						return top;
+					}
+					reader.advance(operator.representation.len());
+					let mut arguments = Vec::new_in(allocator);
+					arguments.push(top);
+
+					top = Expression { on: T::from_str(operator.representation), arguments };
+				} else if reader
+					.current()
+					.starts_with(|chr: char| matches!(chr, '(')) && let Some(adjacency) = &config.adjacency {
+					let operator = adjacency.operator;
 					if return_precedence > operator.precedence {
 						return top;
 					}
 
-					let lhs = top;
-					let rhs = Self::from_reader_precedence(reader, config, operator.precedence);
-					top = Expression::new_binary_operator(operator.representation, lhs, rhs);
+					let rhs = Self::from_reader_with_precedence(reader, config, allocator, operator.precedence);
+					let mut arguments = Vec::new_in(allocator);
+					arguments.push(top);
+					arguments.push(rhs);
+					top = Expression { on: T::from_str(operator.representation), arguments };
 				} else {
-					let on = top;
-					let argument = Self::from_reader_precedence(reader, config, 1);
-					top = Expression::Application { on: Box::new(on), argument: Box::new(argument) }
+					break;
 				}
-			} else {
-				break;
 			}
 		}
 		top
-	}
-
-	#[cfg(feature = "to_string")]
-	pub fn to_string(&self) -> String {
-		let mut buf = String::new();
-		self.to_string2(&mut buf);
-		buf
-	}
-
-	#[cfg(feature = "to_string")]
-	pub(crate) fn to_string2(&self, buf: &mut String) {
-		use std::fmt::Write;
-		match self {
-			Self::Identifier { prefix, name } => {
-				if let Some(prefix) = prefix {
-					write!(buf, "{prefix}").unwrap();
-				}
-				write!(buf, "{name}").unwrap();
-			}
-			// TODO more config
-			Self::Grouped { values } => {
-				write!(buf, "(").unwrap();
-				values.iter().for_each(|value| value.to_string2(buf));
-				write!(buf, ")").unwrap();
-			}
-			Self::Application { on, argument } => {
-				on.to_string2(buf);
-				if !matches!(&**argument, Self::Grouped { .. }) {
-					write!(buf, " ").unwrap();
-				}
-				argument.to_string2(buf);
-			}
-		}
 	}
 }

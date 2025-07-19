@@ -6,6 +6,9 @@ publish = false
 
 [features]
 default = ["to_string"]
+nightly = []
 to_string = []
 
 [dependencies]
+allocator-api2 = "=0.2.21"
+bumpalo = { version = "3.19.0", features = ["allocator-api2", "collections"] }
