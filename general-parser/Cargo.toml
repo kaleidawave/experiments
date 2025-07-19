@@ -1,7 +1,13 @@
 [package]
 name = "general-parser"
-version = "0.0.1"
+version = "0.0.0"
+authors = ["Ben <kaleidawave@gmail.com>"]
 edition = "2024"
+description = "Configurable parser include Lisp S-expr with extensions for more inline mathematical notation"
+license = "MIT"
+categories = ["text-processing", "compilers", "parsing"]
+keywords = ["parsering"]
+repository = "https://github.com/kaleidawave/experiments"
 
 [features]
 default = ["stable"]
