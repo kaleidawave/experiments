@@ -195,3 +195,22 @@ where
 		top
 	}
 }
+
+pub struct ExpressionRepresentation<'a, T>(pub &'a Expression<'a, T>);
+
+impl<'a, T> std::fmt::Display for ExpressionRepresentation<'a, T>
+where
+	T: std::fmt::Display,
+{
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+		if self.0.arguments.is_empty() {
+			write!(f, "{on}", on = self.0.on)
+		} else {
+			write!(f, "({on}", on = self.0.on)?;
+			for arg in &self.0.arguments {
+				write!(f, " {on}", on = ExpressionRepresentation(arg))?;
+			}
+			write!(f, ")")
+		}
+	}
+}

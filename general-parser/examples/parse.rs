@@ -1,4 +1,6 @@
-use general_parser::{BinaryOperator, Configuration, Expression, UnaryOperator};
+use general_parser::{
+	BinaryOperator, Configuration, Expression, ExpressionRepresentation, UnaryOperator,
+};
 
 fn main() {
 	let arg = std::env::args().nth(1);
@@ -28,7 +30,8 @@ fn main() {
 			let allocator = bumpalo::Bump::new();
 			let expression: Expression<&str> =
 				Expression::from_string(source, &configuration, &allocator);
-			eprintln!("{expression:#?}");
+			let expression = ExpressionRepresentation(&expression);
+			eprintln!("{expression}");
 		}
 	}
 }
@@ -98,7 +101,8 @@ fn run_interactive() {
 				let allocator = bumpalo::Bump::new();
 				let expression: Expression<&str> =
 					Expression::from_string(&source, &configuration, &allocator);
-				println!("{expression:#?}");
+				let expression = ExpressionRepresentation(&expression);
+				println!("{expression}");
 			}
 
 			// if let Err(error) = out {

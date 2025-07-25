@@ -3,7 +3,7 @@ pub mod expression;
 pub mod lexer;
 
 pub use configuration::{Adjacency, BinaryOperator, Configuration, UnaryOperator};
-pub use expression::Expression;
+pub use expression::{Expression, ExpressionRepresentation};
 pub use lexer::Lexer;
 
 pub type Allocator = bumpalo::Bump;

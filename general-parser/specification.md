@@ -5,29 +5,7 @@
 ```
 
 ```
-Expression {
-    on: "x",
-    arguments: [
-        Expression {
-            on: "a",
-            arguments: [
-                Expression {
-                    on: "b",
-                    arguments: [],
-                },
-            ],
-        },
-        Expression {
-            on: "c",
-            arguments: [
-                Expression {
-                    on: "d",
-                    arguments: [],
-                },
-            ],
-        },
-    ],
-}
+(x (a b) (c d))
 ```
 
 ### Operations
@@ -40,28 +18,7 @@ x * y + 2
 ```
 
 ```
-Expression {
-    on: "+",
-    arguments: [
-        Expression {
-            on: "*",
-            arguments: [
-                Expression {
-                    on: "x",
-                    arguments: [],
-                },
-                Expression {
-                    on: "y",
-                    arguments: [],
-                },
-            ],
-        },
-        Expression {
-            on: "2",
-            arguments: [],
-        },
-    ],
-}
+(+ (* x y) 2)
 ```
 
 ### Adjacency
@@ -73,28 +30,7 @@ _*_ 4 (adjacent)
 ```
 
 ```
-Expression {
-    on: "*",
-    arguments: [
-        Expression {
-            on: "*",
-            arguments: [
-                Expression {
-                    on: "3",
-                    arguments: [],
-                },
-                Expression {
-                    on: "x",
-                    arguments: [],
-                },
-            ],
-        },
-        Expression {
-            on: "y",
-            arguments: [],
-        },
-    ],
-}
+(* (* 3 x) y)
 ```
 
 ### Adjacency 2
@@ -107,26 +43,5 @@ x(y + 2)
 ```
 
 ```
-Expression {
-    on: "*",
-    arguments: [
-        Expression {
-            on: "x",
-            arguments: [],
-        },
-        Expression {
-            on: "+",
-            arguments: [
-                Expression {
-                    on: "y",
-                    arguments: [],
-                },
-                Expression {
-                    on: "2",
-                    arguments: [],
-                },
-            ],
-        },
-    ],
-}
+(* x (+ y 2))
 ```

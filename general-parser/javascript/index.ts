@@ -222,3 +222,18 @@ function parseExpressionFromReaderAfterFirst(
 	}
 	return top
 }
+
+export function printExpression(expression: Expression): string {
+	if (expression.arguments.length) {
+		let s = "(";
+		s += expression.on;
+		for (const argument of expression.arguments) {
+			s += " ";
+			s += printExpression(argument);
+		}
+		s += ")";
+		return s
+	} else {
+		return expression.on
+	}
+}

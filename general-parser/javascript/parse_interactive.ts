@@ -1,4 +1,4 @@
-import { Configuration, parseExpression } from "./index";
+import { Configuration, parseExpression, printExpression } from "./index";
 
 console.log("start");
 let buffer = "";
@@ -48,7 +48,8 @@ for await (const line of console) {
 			buffer = source;
 		}
 
-		console.dir(parseExpression(buffer, configuration), { depth: 100 })
+		const expression = parseExpression(buffer, configuration);
+		console.log(printExpression(expression));
 		console.log("end");
 		buffer = "";
 		continue
@@ -58,4 +59,4 @@ for await (const line of console) {
 	buffer += "\n";
 }
 
-console.log("finished");
+// console.log("finished");

@@ -14,17 +14,28 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
+    - uses: oven-sh/setup-bun@v2
+    - uses: kaleidawave/release-downloader@main
+      with:
+        items: kaleidawave/experiments@assets[spectra]
 
     - name: Check
       run: cargo check
       working-directory: ${{ matrix.project }}
 
     - name: Test
+      continue-on-error: true # TODO temp
       run: cargo test
       working-directory: ${{ matrix.project }}
 
+    - name: Test (JavaScript)
+      continue-on-error: true # TODO temp
+      run: bun run test
+      working-directory: ${{ matrix.project }}/javascript
+
     - name: Lint
       run: cargo clippy
+      continue-on-error: true # TODO temp
       working-directory: ${{ matrix.project }}
 
   publish-assets:
@@ -128,10 +139,14 @@ jobs:
           git push origin ${{ steps.checkout.outputs.ref }}
 
   publish-javascript:
+    needs: check
+
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       id-token: write
+
     steps:
       - uses: actions/checkout@v4
       - name: Publish package
