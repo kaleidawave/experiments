@@ -15,7 +15,6 @@ pub struct Configuration<'a> {
 	pub prefix_unary_operators: Vec<UnaryOperator<'a>>,
 	pub postfix_unary_operators: Vec<UnaryOperator<'a>>,
 	pub binary_operators: Vec<BinaryOperator<'a>>,
-	pub identifier_prefixes: Vec<char>,
 	pub adjacency: Option<Adjacency<'a>>,
 }
 
