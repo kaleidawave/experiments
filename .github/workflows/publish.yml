@@ -126,3 +126,14 @@ jobs:
           git add .
           git commit -m "Release: ${{ steps.release.outputs.new-versions-description }}"
           git push origin ${{ steps.checkout.outputs.ref }}
+
+  publish-javascript:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish package
+        run: npx jsr publish
+        working-directory: general-parser/javascript

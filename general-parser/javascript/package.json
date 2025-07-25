@@ -1,0 +1,5 @@
+{
+	"scripts": {
+		"test": "spectra check ./specification.md \"bun run javascript/parse_interactive.ts --rpc\""
+	}
+}
