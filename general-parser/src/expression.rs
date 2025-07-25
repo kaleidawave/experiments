@@ -16,18 +16,23 @@ impl<'a, T> Expression<'a, T>
 where
 	T: Literal<'a>,
 {
-	pub fn from_string(source: &'a str, config: &Configuration, allocator: &'a Allocator) -> Self {
+	pub fn from_string(
+		source: &'a str,
+		config: &'a Configuration,
+		allocator: &'a Allocator,
+	) -> Self {
 		let mut reader = Lexer::new(source);
 		let this = Self::from_reader(&mut reader, config, allocator);
+		reader.skip();
 		if !reader.finished() {
-			panic!("not finished {}", reader.current());
+			panic!("not finished {:?}", reader.current());
 		}
 		this
 	}
 
 	pub fn from_reader(
 		reader: &mut Lexer<'a>,
-		config: &Configuration,
+		config: &'a Configuration,
 		allocator: &'a Allocator,
 	) -> Self {
 		Self::from_reader_with_precedence(reader, config, allocator, 0)
@@ -35,7 +40,7 @@ where
 
 	pub(crate) fn from_reader_with_precedence(
 		reader: &mut Lexer<'a>,
-		config: &Configuration,
+		config: &'a Configuration,
 		allocator: &'a Allocator,
 		precedence: u8,
 	) -> Self {
@@ -119,7 +124,7 @@ where
 
 	fn append_operators(
 		reader: &mut Lexer<'a>,
-		config: &Configuration,
+		config: &'a Configuration,
 		allocator: &'a Allocator,
 		return_precedence: u8,
 		mut top: Self,

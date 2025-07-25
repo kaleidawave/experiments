@@ -1,26 +1,27 @@
 #[derive(Clone, Copy, Debug)]
-pub struct BinaryOperator {
-	pub representation: &'static str,
+pub struct BinaryOperator<'a> {
+	pub representation: &'a str,
 	pub precedence: u8,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct UnaryOperator {
-	pub representation: &'static str,
+pub struct UnaryOperator<'a> {
+	pub representation: &'a str,
 	pub precedence: u8,
 }
 
-#[derive(Default)]
-pub struct Configuration {
-	pub prefix_unary_operators: Vec<UnaryOperator>,
-	pub postfix_unary_operators: Vec<UnaryOperator>,
-	pub binary_operators: Vec<BinaryOperator>,
+#[derive(Default, Debug)]
+pub struct Configuration<'a> {
+	pub prefix_unary_operators: Vec<UnaryOperator<'a>>,
+	pub postfix_unary_operators: Vec<UnaryOperator<'a>>,
+	pub binary_operators: Vec<BinaryOperator<'a>>,
 	pub identifier_prefixes: Vec<char>,
-	pub adjacency: Option<Adjacency>,
+	pub adjacency: Option<Adjacency<'a>>,
 }
 
-pub struct Adjacency {
+#[derive(Debug)]
+pub struct Adjacency<'a> {
 	// TODO skip
-	pub operator: BinaryOperator,
-	pub functions: Vec<&'static str>,
+	pub operator: BinaryOperator<'a>,
+	pub functions: Vec<&'a str>,
 }

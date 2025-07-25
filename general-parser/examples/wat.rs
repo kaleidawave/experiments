@@ -3,12 +3,12 @@ use general_parser::{Configuration, Expression}; // BinaryOperator,
 fn main() {
 	let allocator = bumpalo::Bump::new();
 
-	let expression = "(module
+	let expression = r#"(module
   (func (result i32)
     (i32.const 42)
   )
-  (export \"helloWorld\" (func 0))
-)";
+  (export "forty_two" (func 0))
+)"#;
 
 	let configuration = Configuration::default();
 

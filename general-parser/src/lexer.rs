@@ -17,12 +17,9 @@ impl<'a> Lexer<'a> {
 	}
 
 	pub(crate) fn skip(&mut self) {
-		for (idx, chr) in self.current().char_indices() {
-			if !chr.is_whitespace() {
-				self.advance(idx);
-				break;
-			}
-		}
+		let current = self.current();
+		let idx = current.find(|chr: char| !chr.is_whitespace()).unwrap_or(current.len());
+		self.advance(idx);
 	}
 
 	// TODO some of these temp
