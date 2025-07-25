@@ -4,7 +4,32 @@ on:
   push
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        project: [general-parser]
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+
+    - name: Check
+      run: cargo check
+      working-directory: ${{ matrix.project }}
+
+    - name: Test
+      run: cargo test
+      working-directory: ${{ matrix.project }}
+
+    - name: Lint
+      run: cargo clippy
+      working-directory: ${{ matrix.project }}
+
   publish-assets:
+    needs: check
+
     permissions: write-all
 
     strategy:
@@ -67,6 +92,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-crates:
+    needs: check
+
     permissions: write-all
 
     strategy:

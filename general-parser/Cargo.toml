@@ -16,3 +16,10 @@ stable = ["dep:allocator-api2", "bumpalo/allocator-api2"]
 [dependencies]
 allocator-api2 = { version = "=0.2.21", optional = true }
 bumpalo = { version = "3.19.0", features = ["collections"] }
+
+[[test]]
+name = "specification"
+harness = false
+
+[package.metadata.commands]
+spectra = 'spectra check ./specification.md "./target/debug/examples/parse --rpc --interactive"'
