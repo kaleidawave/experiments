@@ -120,38 +120,42 @@ jobs:
       - id: checkout
         uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Set git credentials
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Crates publish
-        uses: kaleidawave/crates-release-gh-action@improvements
-        id: release
+      - uses: kaleidawave/release-downloader@main
         with:
-          version: patch
-          crates-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          working-directory: ${{ matrix.library }}
+          items: kaleidawave/crates-release-gh-action@assets[crates-release]
+
+      - name: Update field
+        id: update-field
+        run: crates-release change-version 'patch'
+        working-directory: ${{ matrix.library }}
+
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        working-directory: ${{ matrix.library }}
+
+      # - name: Crates publish
+      #   uses: kaleidawave/crates-release-gh-action@improvements
+      #   id: release
+      #   with:
+      #     version: patch
+      #     crates-token: ${{ steps.auth.outputs.token }}
+      #     working-directory: ${{ matrix.library }}
+
+      - name: Publish package
+        if: false
+        run: npx jsr publish
+        working-directory: general-parser/javascript
 
       - name: Push updated Cargo.toml
         run: |
-          git status
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "Release: ${{ steps.release.outputs.new-versions-description }}"
+          git commit -m "Release: ${{ steps.update-field.outputs.general-parser }}"
           git push origin ${{ steps.checkout.outputs.ref }}
 
-  publish-javascript:
-    needs: check
-
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      id-token: write
-
-    steps:
-      - uses: actions/checkout@v4
-      - name: Publish package
-        run: npx jsr publish
-        working-directory: general-parser/javascript
+  
