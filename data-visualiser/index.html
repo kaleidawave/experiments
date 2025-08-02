@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Data Visualiser</title>
+	<link rel="stylesheet" href="/index.css">
+	<script type="module" src="/index.mjs"></script>
+</head>
+
+<body>
+	<main class="block" data-view="upload">
+		<div id="upload">
+			<h1>Upload file</h1>
+			<p>Upload <code>JSON</code> file or paste content here</p>
+			<button data-upload>Upload</button>
+		</div>
+		<!-- -->
+		<div id="dashboard">
+			<div class="row horizontal">
+				<h2>reading <code data-content="file-name">...</code></h2>
+				<button data-upload>Change</button>
+			</div>
+			<nav id="inner-navigation" class="row">
+				<ul>
+					<li><a href="#pie-chart">pie chart</a></li>
+					<li><a href="#scatterplot">scatterplot</a></li>
+					<li><a href="#histogram">histogram</a></li>
+				</ul>
+			</nav>
+			<div id="inner" class="row">
+				<p>Select view from above</p>
+				<div id="pie-chart">
+					<h3>Pie chart</h3>
+					<form>
+						<select name="key" id="key-select"></select>
+					</form>
+					<div id="pie-plot"></div>
+				</div>
+				<div id="scatterplot">
+					<h3>Scatterplot</h3>
+					<form>
+						<select name="x-key" id="x-key-select"></select>
+						<select name="y-key" id="y-key-select"></select>
+					</form>
+					<div id="scatter-plot"></div>
+				</div>
+				<div id="histogram">
+					<h3>Histogram</h3>
+					<form>
+						<select name="x-key" id="x-key-select"></select>
+						<select name="y-key" id="y-key-select"></select>
+					</form>
+					<div id="histogram-plot"></div>
+				</div>
+			</div>
+		</div>
+	</main>
+</body>
+
+</html>

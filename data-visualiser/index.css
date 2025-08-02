@@ -1,0 +1,114 @@
+body {
+	font-family: sans-serif;
+
+	padding: 40px;
+	margin: 0;
+
+	--accent1: #e8b546;
+	--accent2: #d3444a;
+	--accent3: #098e9f;
+}
+
+button,
+input {
+	font-family: inherit;
+	color: white;
+	background-color: black;
+	border: none;
+	border-radius: 4px;
+	padding: 4px 8px;
+}
+
+h1,
+h2,
+h3 {
+	margin: 0;
+}
+
+.block {
+	display: flex;
+	flex-direction: column;
+	min-width: 120px;
+}
+
+.row {
+	padding: 12px;
+	border: 2px solid rgb(211, 211, 211);
+	border-radius: 4px;
+}
+
+.horizontal {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+
+	&>button {
+		height: min-content;
+	}
+}
+
+#upload {
+	align-self: center;
+	flex-direction: column;
+}
+
+main {
+	&>div {
+		display: none;
+	}
+
+	&[data-view='upload']>#upload {
+		display: flex;
+	}
+
+	&[data-view='dashboard']>#dashboard {
+		display: flex;
+	}
+}
+
+/* Using :where here to change specificity */
+div:where(#dashboard) {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+
+	nav>ul {
+		display: flex;
+		padding: 0;
+		margin: 0;
+		list-style: none;
+		gap: 12px;
+
+		&>li {
+			padding: 4px 8px;
+			border-radius: 4px;
+			color: white;
+
+			&:nth-child(3n) {
+				background-color: var(--accent1);
+			}
+
+			&:nth-child(3n+1) {
+				background-color: var(--accent2);
+			}
+
+			&:nth-child(3n+2) {
+				background-color: var(--accent3);
+			}
+
+			a {
+				text-decoration: none;
+				color: inherit;
+			}
+		}
+	}
+
+	#inner {
+		min-height: 480px;
+
+		& p {
+			text-align: center;
+			margin-top: 64px;
+		}
+	}
+}
