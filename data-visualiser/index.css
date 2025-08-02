@@ -110,5 +110,55 @@ div:where(#dashboard) {
 			text-align: center;
 			margin-top: 64px;
 		}
+
+		&>div,
+		&>p {
+			display: none;
+		}
+
+		&:not([data-view])>p {
+			display: block;
+		}
+
+		&[data-view='pie-chart']>#pie-chart {
+			display: block;
+		}
+
+		&[data-view='scatterplot']>#scatterplot {
+			display: block;
+		}
+
+		&[data-view='histogram']>#histogram {
+			display: block;
+		}
+
+		svg {
+			width: 100%;
+			max-height: 400px;
+
+			&.pie-chart {
+				margin: 20px;
+				width: 320px;
+
+				path:hover {
+					stroke: rgb(0, 42, 255);
+					stroke-width: 1px;
+				}
+
+				path+text {
+					font-size: 4px;
+					display: none;
+					user-select: none;
+					pointer-events: none;
+					font-family: Inter, sans-serif;
+					fill: white;
+				}
+
+				path:hover+text {
+					display: unset;
+				}
+			}
+		}
+
 	}
 }
