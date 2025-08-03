@@ -137,9 +137,6 @@ div:where(#dashboard) {
 			max-height: 400px;
 
 			&.pie-chart {
-				margin: 20px;
-				width: 320px;
-
 				path:hover {
 					stroke: rgb(0, 42, 255);
 					stroke-width: 1px;
@@ -156,6 +153,16 @@ div:where(#dashboard) {
 
 				path:hover+text {
 					display: unset;
+				}
+			}
+
+			&.scatterplot {
+				text.point-label {
+					opacity: 0;
+
+					&:hover {
+						opacity: 1;
+					}
 				}
 			}
 		}
