@@ -36,7 +36,7 @@ function generateRange(data, count, index = "") {
 	return range(0, dataRangeMax, count);
 }
 
-export function generatePieChart(data) {
+export function generatePieChart(data, measureName = null) {
 	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 	svg.classList.add("pie-chart");
 	svg.setAttribute("viewBox", "-3 -3 206 206");
@@ -81,10 +81,16 @@ export function generatePieChart(data) {
 		svg.append(arc, text);
 		[prevX, prevY] = [toX, toY];
 	}
+
+	if (measureName) {
+		const label = generateText(0, 200, measureName);
+		svg.append(label)
+	}
+
 	return svg
 }
 
-export function generateScatterplot(data) {
+export function generateScatterplot(data, xName = null, yName = null) {
 	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 	svg.classList.add("scatterplot");
 	svg.setAttribute("viewBox", "-30 0 275 275");
@@ -172,10 +178,22 @@ export function generateScatterplot(data) {
 		svg.append(line1, line2, label);
 	}
 
+	if (xName) {
+		const label = generateText(120, yOffset + 22, xName);
+		label.style.textAnchor = "middle";
+		svg.append(label)
+	}
+	if (yName) {
+		const label = generateText(-25, yOffset / 2, yName);
+		label.style.textAnchor = "middle";
+		label.style.writingMode = "tb"
+		svg.append(label)
+	}
+
 	return svg
 }
 
-export function generateHistogram(data) {
+export function generateHistogram(data, measureName = null) {
 	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 	svg.classList.add("histogram");
 	svg.setAttribute("viewBox", "-40 0 300 275");
@@ -253,6 +271,20 @@ export function generateHistogram(data) {
 		rect.setAttribute("height", height);
 		rect.style.fill = mainColour;
 		svg.append(rect);
+	}
+
+	if (measureName) {
+		{
+			const label = generateText(120, yOffset + 22, measureName);
+			label.style.textAnchor = "middle";
+			svg.append(label)
+		}
+		{
+			const label = generateText(-25, yOffset / 2, "frequency");
+			label.style.textAnchor = "middle";
+			label.style.writingMode = "tb"
+			svg.append(label)
+		}
 	}
 
 	return svg

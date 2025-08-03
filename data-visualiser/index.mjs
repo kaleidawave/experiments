@@ -118,7 +118,7 @@ function specifierChange(ev) {
 			const selection = Object.entries(data).map(([name, object]) => ({
 				name, value: retrieveKey(object, index)
 			}));
-			const chart = generatePieChart(selection);
+			const chart = generatePieChart(selection, index);
 			slot.append(chart);
 			break;
 		}
@@ -130,7 +130,7 @@ function specifierChange(ev) {
 				x: retrieveKey(object, xIndex),
 				y: retrieveKey(object, yIndex)
 			}));
-			const chart = generateScatterplot(selection);
+			const chart = generateScatterplot(selection, xIndex, yIndex);
 			slot.append(chart);
 			break;
 		}
@@ -139,7 +139,7 @@ function specifierChange(ev) {
 			const selection = Object.entries(data).map(([name, object]) => ({
 				name, value: retrieveKey(object, index)
 			}));
-			const chart = generateHistogram(selection);
+			const chart = generateHistogram(selection, index);
 			slot.append(chart);
 			break
 		}
