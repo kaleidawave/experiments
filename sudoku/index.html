@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Sudoku</title>
+	<style>
+		body {
+			font-family: Inter;
+			display: flex;
+			margin-top: 60px;
+		}
+
+		button,
+		input {
+			font-family: inherit;
+		}
+
+		main {
+			margin: 0 auto;
+
+			.row {
+				display: flex;
+				align-items: center;
+				gap: 20px;
+
+				button {
+					height: min-content;
+				}
+			}
+		}
+
+		table {
+			border-collapse: collapse;
+		}
+
+		td {
+			padding: 0;
+
+			&:first-child {
+				border-left: 2px solid black;
+			}
+
+			&:nth-child(3n) {
+				border-right: 2px solid black;
+			}
+		}
+
+		tr {
+			padding: 0;
+
+			&:first-child {
+				border-top: 2px solid black;
+			}
+
+			&:nth-child(3n) {
+				border-bottom: 2px solid black;
+			}
+		}
+
+		input[type="number"] {
+			width: 32px;
+			height: 32px;
+			text-align: center;
+
+			border: 1px solid rgb(133, 133, 133);
+
+			/* Chrome, Safari, Edge, Opera */
+			&::-webkit-outer-spin-button,
+			&::-webkit-inner-spin-button {
+				-webkit-appearance: none;
+				margin: 0;
+			}
+
+			/* Firefox */
+			& {
+				-moz-appearance: textfield;
+			}
+
+			&:focus {
+				border: 1px solid blue;
+				outline: none;
+			}
+
+			&:read-only {
+				font-weight: bold;
+			}
+		}
+	</style>
+	<script type="module">
+		let inSetupMode = true;
+
+		const table = document.querySelector("tbody");
+		const n = 9, m = 9;
+		for (let i = 0; i < m; i++) {
+			const row = document.createElement("tr");
+			for (let j = 0; j < n; j++) {
+				const td = document.createElement("td");
+				{
+					const input = document.createElement("input");
+					input.type = "number";
+					input.min = "1";
+					input.max = "9";
+					input.addEventListener("focus", (ev) => {
+						const { target } = ev;
+						if (target.value && !target.hasAttribute("readonly")) {
+							target.placeholder = target.value;
+							target.value = "";
+						}
+					});
+					input.addEventListener("blur", (ev) => {
+						const { target } = ev;
+						if (target.value && inSetupMode) {
+							target.setAttribute("readonly", "");
+						} else if (!target.value) {
+							target.value = target.placeholder;
+							target.placeholder = "";
+						}
+					});
+					td.append(input);
+				}
+				row.append(td)
+			}
+			table.append(row)
+		}
+
+		document.body.addEventListener("keydown", (ev) => {
+			const { target } = ev;
+			if (target instanceof HTMLInputElement && target.closest("table")) {
+				if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+					const row = target.parentElement.parentElement;
+					const idx = Array.prototype.indexOf.call(row.children, target.parentElement);
+					const rowToSelect = ev.key === "ArrowDown" ? row.nextElementSibling : row.previousElementSibling;
+					if (rowToSelect) rowToSelect.children[idx].firstElementChild.focus();
+					ev.preventDefault();
+				} else if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+					const item = target.parentElement;
+					const itemToSelect = ev.key === "ArrowRight" ? item.nextElementSibling : item.previousElementSibling;
+					if (itemToSelect) itemToSelect.firstElementChild.focus();
+					ev.preventDefault();
+				} else if (ev.key === "f" && target.value) {
+					target.toggleAttribute("readonly")
+				} else if (ev.key === "Backspace" && target.value === "") {
+					target.placeholder = "";
+					const prev = target.parentElement.previousElementSibling;
+					if (prev) prev.firstElementChild.focus();
+				}
+			}
+		});
+
+		document.body.addEventListener("input", (ev) => {
+			const { target } = ev;
+			if (target instanceof HTMLInputElement && target.closest("table") && target.value) {
+				const next = target.parentElement.nextElementSibling;
+				if (next) next.firstElementChild.focus();
+				else target.blur();
+			}
+			if (target.id === "setup") {
+				inSetupMode = target.checked;
+			}
+		});
+
+		document.body.addEventListener("click", async (ev) => {
+			if (ev.target.hasAttribute("data-copy")) {
+				let acc = ""
+				for (const row of table.children) {
+					if (acc) acc += "\n";
+					let i = 0;
+					for (const item of row.children) {
+						if (i) acc += "&";
+
+						const input = item.firstElementChild;
+						if (input.hasAttribute("readonly")) acc += "[" + input.value + "]";
+						else acc += input.value;
+
+						i++;
+					}
+				}
+				navigator.clipboard.writeText(acc);
+			} else if (ev.target.hasAttribute("data-paste")) {
+				const item = await navigator.clipboard.readText();
+				const rows = item.split("\n");
+				for (let i = 0; i < rows.length; i++) {
+					const row = rows[i].trim().split("&");
+					for (let j = 0; j < rows.length; j++) {
+						let value = row[j]
+						if (value) {
+							const input = table.children[i].children[j].firstElementChild;
+							if (value.startsWith("[")) {
+								value = value.slice(1, -1);
+								input.setAttribute("readonly", "");
+							}
+							input.value = value;
+						}
+					}
+				}
+			}
+		});
+	</script>
+</head>
+
+<body>
+	<main>
+		<div class="row">
+			<h1>Sudoku</h1>
+			<button data-copy>Copy</button>
+			<button data-paste>Paste</button>
+			<label>Setup <input type="checkbox" name="setup" id="setup" checked></label>
+		</div>
+		<table>
+			<tbody></tbody>
+		</table>
+	</main>
+</body>
+
+</html>
