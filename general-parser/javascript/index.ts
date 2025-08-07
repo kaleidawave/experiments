@@ -45,35 +45,34 @@ class Lexer {
 	}
 
 	startsWith(item: string): boolean {
-		/*
-		pub(crate) fn starts_with(&mut self, slice: &str) -> bool {
-		self.skip();
-		let current = self.current();
-		let matches = current.starts_with(slice);
-		let is_not_actually_operator = matches
-			&& slice.chars().all(char::is_alphanumeric)
-			&& current[slice.len()..].chars().next().is_some_and(char::is_alphanumeric);
-
-		if is_not_actually_operator { false } else { matches }
-	}
-		*/
 		this.skip();
-		return this.current().startsWith(item);
+		const matches = this.current().startsWith(item);
+
+		// fix for or with orpington
+		const is_not_actually_operator = matches
+			&& Array.from(item).every(c => is_alphanumeric(c.charCodeAt(0)))
+			&& is_alphanumeric(this.current().charCodeAt(item.length))
+
+		if (is_not_actually_operator) return is_not_actually_operator;
+		return matches;
 	}
 
 	startsWithValue(): boolean {
 		this.skip();
 		let current = this.current();
-		const character = current.charCodeAt(0);
-		return (0x30 <= character && character <= 0x39)
-			|| (0x41 <= character && character <= 0x5a)
-			|| (0x61 <= character && character <= 0x7a)
-			|| `"'([`.includes(current[0])
+		return is_alphanumeric(current.charCodeAt(0)) || `"'([`.includes(current[0])
 	}
 
 	advance(count: number = 1): void {
 		this.#idx += count;
 	}
+}
+
+// TODO what about 'ą'
+function is_alphanumeric(character: number): boolean {
+	return (0x30 <= character && character <= 0x39)
+		|| (0x41 <= character && character <= 0x5a)
+		|| (0x61 <= character && character <= 0x7a)
 }
 
 export interface BinaryOperator {
@@ -86,9 +85,17 @@ export interface UnaryOperator {
 	precedence: number,
 }
 
+export interface TernaryOperator {
+	name: string,
+	parts: [string, string, string],
+	precedence: number,
+}
+
 export interface Configuration {
 	prefix_unary_operators: Array<UnaryOperator>,
+	prefix_ternary_operators: Array<TernaryOperator>,
 	postfix_unary_operators: Array<UnaryOperator>,
+	postfix_ternary_operators: Array<TernaryOperator>,
 	binary_operators: Array<BinaryOperator>,
 	adjacency: Adjacency | null,
 }
@@ -108,7 +115,7 @@ export function parseExpression(
 	configuration: Configuration,
 ): Expression {
 	const reader = new Lexer(source);
-	const expression = parseExpressionFromReader(reader, configuration, 0);
+	const expression = parseExpressionFromReader(reader, configuration, 0, null);
 	if (!reader.finished()) {
 		throw Error(`not finished ${reader.current()}`)
 	}
@@ -118,18 +125,14 @@ export function parseExpression(
 function parseExpressionFromReader(
 	reader: Lexer,
 	configuration: Configuration,
-	precedence: number
+	precedence: number,
+	breakBefore: string | null = null
 ): Expression {
-	let unary_operator = configuration
-		.prefix_unary_operators
-		.find((operator) => reader.startsWith(operator.representation));
+	let ternary_operator: TernaryOperator | undefined;
+	let unary_operator: UnaryOperator | undefined;
 
 	let first: Expression;
-	if (unary_operator) {
-		reader.advance(unary_operator.representation.length);
-		const operand = parseExpressionFromReader(reader, configuration, unary_operator.precedence)
-		first = { on: unary_operator.representation, arguments: [operand] }
-	} else if (reader.startsWith("(")) {
+	if (reader.startsWith("(")) {
 		reader.advance();
 		first = parseExpressionFromReader(reader, configuration, 0);
 		if (reader.startsWith(")")) {
@@ -137,6 +140,57 @@ function parseExpressionFromReader(
 		} else {
 			throw Error(`no close paren ${reader.current()}`);
 		}
+	} else if (ternary_operator = configuration
+		.prefix_ternary_operators
+		.find((operator) => reader.startsWith(operator.parts[0]))) {
+
+		reader.advance(ternary_operator.parts[0].length);
+
+		let next = parseExpressionFromReader(
+			reader,
+			configuration,
+			ternary_operator.precedence,
+			ternary_operator.parts[1]
+		);
+
+		if (reader.startsWith(ternary_operator.parts[1])) {
+			reader.advance(ternary_operator.parts[1].length);
+		} else {
+			throw new Error("Expected " + ternary_operator.parts[1]);
+		}
+
+		let lhs = parseExpressionFromReader(
+			reader,
+			configuration,
+			ternary_operator.precedence,
+			ternary_operator.parts[2]
+		);
+
+		if (reader.startsWith(ternary_operator.parts[2])) {
+			reader.advance(ternary_operator.parts[2].length);
+		} else {
+			throw new Error("Expected " + ternary_operator.parts[2]);
+		}
+
+		let rhs = parseExpressionFromReader(
+			reader,
+			configuration,
+			ternary_operator.precedence,
+			breakBefore
+		);
+
+		first = { on: ternary_operator.name, arguments: [next, lhs, rhs] }
+	} else if (unary_operator = configuration
+		.prefix_unary_operators
+		.find((operator) => reader.startsWith(operator.representation))) {
+		reader.advance(unary_operator.representation.length);
+		const operand = parseExpressionFromReader(
+			reader,
+			configuration,
+			unary_operator.precedence,
+			breakBefore
+		);
+		first = { on: unary_operator.representation, arguments: [operand] }
 	} else {
 		const identifier = reader.parseIdentifier();
 
@@ -152,11 +206,21 @@ function parseExpressionFromReader(
 			}
 		} else {
 			const args: Array<Expression> = [];
-			if (precedence == 0) {
-				while (reader.startsWithValue()) {
-					const expression: Expression = parseExpressionFromReader(reader, configuration, 1);
-					args.push(expression);
-				}
+			while (reader.startsWithValue()) {
+				let shouldBreak = configuration.binary_operators.some(op => reader.startsWith(op.representation));
+				shouldBreak ||= configuration.postfix_ternary_operators.some(op => reader.startsWith(op.parts[0]));
+				shouldBreak ||= configuration.postfix_unary_operators.some(op => reader.startsWith(op.representation));
+				shouldBreak ||= breakBefore !== null && reader.startsWith(breakBefore);
+
+				if (shouldBreak) break;
+
+				const expression: Expression = parseExpressionFromReader(
+					reader,
+					configuration,
+					1,
+					breakBefore
+				);
+				args.push(expression);
 			}
 
 			first = { on: identifier, arguments: args };
@@ -164,60 +228,129 @@ function parseExpressionFromReader(
 
 	};
 
-	return parseExpressionFromReaderAfterFirst(reader, configuration, precedence, first)
+	return parseExpressionFromReaderAfterFirst(
+		reader,
+		configuration,
+		precedence,
+		breakBefore,
+		first
+	)
 }
 
 function parseExpressionFromReaderAfterFirst(
 	reader: Lexer,
 	configuration: Configuration,
 	returnPrecedence: number,
+	breakBefore: string | null,
 	top: Expression
 ): Expression {
-	// TODO postfix operators
 	while (!reader.finished()) {
 		reader.skip();
-		const binary_operator = configuration
-			.binary_operators
-			.find((operator) => reader.startsWith(operator.representation));
 
-		if (binary_operator) {
+		if (breakBefore && reader.startsWith(breakBefore)) {
+			break;
+		}
+
+		let postfix_ternary_operator: TernaryOperator | undefined;
+		let binary_operator: BinaryOperator | undefined;
+		let unary_operator: UnaryOperator | undefined;
+
+		if (postfix_ternary_operator =
+			configuration.postfix_ternary_operators.find(operator => reader.startsWith(operator.parts[0]))
+		) {
+			if (returnPrecedence > postfix_ternary_operator.precedence) {
+				return top;
+			}
+
+			reader.advance(postfix_ternary_operator.parts[0].length);
+			const lhs = parseExpressionFromReader(
+				reader,
+				configuration,
+				postfix_ternary_operator.precedence,
+				postfix_ternary_operator.parts[1]
+			);
+
+			if (reader.startsWith(postfix_ternary_operator.parts[1])) {
+				reader.advance(postfix_ternary_operator.parts[1].length);
+
+				const rhs = parseExpressionFromReader(
+					reader,
+					configuration,
+					postfix_ternary_operator.precedence,
+					postfix_ternary_operator.parts[2]
+				);
+
+				if (reader.startsWith(postfix_ternary_operator.parts[2])) {
+					reader.advance(postfix_ternary_operator.parts[2].length);
+				} else {
+					throw new Error("expected " + postfix_ternary_operator.parts[2]);
+				}
+
+				top = {
+					on: postfix_ternary_operator.name,
+					arguments: [top, lhs, rhs]
+				};
+			} else {
+				const substituteBinaryOperator: BinaryOperator | undefined = configuration
+					.binary_operators
+					.find(operator => operator.representation === postfix_ternary_operator!.parts[0]);
+
+				if (substituteBinaryOperator) {
+					if (returnPrecedence > substituteBinaryOperator.precedence) {
+						throw new Error("binary operator greater than ternary");
+					}
+
+					top = { on: substituteBinaryOperator.representation, arguments: [top, lhs] }
+				} else {
+					throw new Error("Expected " + postfix_ternary_operator.parts[1]);
+				}
+			}
+		} else if (binary_operator = configuration
+			.binary_operators
+			.find((operator) => reader.startsWith(operator.representation))) {
 			if (returnPrecedence > binary_operator.precedence) {
 				return top;
 			}
 
 			reader.advance(binary_operator.representation.length);
 			const lhs = top;
-			const rhs = parseExpressionFromReader(reader, configuration, binary_operator.precedence);
+			const rhs = parseExpressionFromReader(
+				reader,
+				configuration,
+				binary_operator.precedence,
+				breakBefore
+			);
 			top = {
 				on: binary_operator.representation,
 				arguments: [lhs, rhs]
 			};
-		} else {
-			const unary_operator = configuration
-				.postfix_unary_operators
-				.find((operator) => reader.startsWith(operator.representation));
-
-			if (unary_operator) {
-				if (returnPrecedence > unary_operator.precedence) {
-					return top;
-				}
-
-				reader.advance(unary_operator.representation.length);
-				top = { on: unary_operator.representation, arguments: [top] }
-			} else if (reader.startsWith("(") && configuration.adjacency) {
-				const operator = configuration.adjacency.operator;
-
-				if (returnPrecedence > operator.precedence) return top;
-
-				const rhs = parseExpressionFromReader(reader, configuration, operator.precedence);
-
-				top = {
-					on: operator.representation,
-					arguments: [top, rhs]
-				};
-			} else {
-				break;
+		} else if (unary_operator = configuration
+			.postfix_unary_operators
+			.find((operator) => reader.startsWith(operator.representation))) {
+			if (returnPrecedence > unary_operator.precedence) {
+				return top;
 			}
+
+			reader.advance(unary_operator.representation.length);
+			top = { on: unary_operator.representation, arguments: [top] }
+		} else if (reader.startsWith("(") && configuration.adjacency) {
+			const operator = configuration.adjacency.operator;
+
+			if (returnPrecedence > operator.precedence) return top;
+
+			const rhs = parseExpressionFromReader(
+				reader,
+				configuration,
+				operator.precedence,
+				breakBefore
+			);
+
+			top = {
+				on: operator.representation,
+				arguments: [top, rhs]
+			};
+		} else {
+			break;
 		}
 	}
 	return top

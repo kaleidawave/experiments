@@ -8,10 +8,13 @@ const configuration: Configuration = {
 		{ precedence: 2, representation: "*" },
 		{ precedence: 2, representation: "/" },
 	],
-	unary_operators: [
-		{ precedence: 1, representation: "-", prefix: true },
+	prefix_unary_operators: [
+		{ precedence: 1, representation: "-" },
 	],
-	identifier_prefixes: []
+	adjacency: null,
+	postfix_ternary_operators: [],
+	postfix_unary_operators: [],
+	prefix_ternary_operators: [],
 };
 
 const examples = [
@@ -22,6 +25,10 @@ const examples = [
 	"x + sin(y)"
 ];
 
+const x = 5, y = -2;
+
+console.log({ x, y })
+
 for (const example of examples) {
 	console.log(`--- ${example} ---`)
 	const expression = parseExpression(example, configuration);
@@ -30,41 +37,25 @@ for (const example of examples) {
 }
 
 function evaluate(expression: Expression): number {
-	if ("name" in expression) {
-		if (expression.name === "x") {
-			return 5
-		} else if (expression.name === "y") {
-			return -2
-		} else {
-			return parseFloat(expression.name)
-		}
-	} else if ("values" in expression) {
-		return evaluate(expression.values[0])
-	} else if ("function" in expression) {
-		if ("name" in expression.function) {
-			const func = expression.function.name;
-			const operand = evaluate(expression.argument);
-			if (func === "+") return +operand;
-			else if (func === "-") return -operand;
-			else if (func === "sin") return Math.sin(operand);
-			throw new Error(`Unknown operator ${func}`);
-		} else if ("function" in expression.function) {
-			if ("name" in expression.function.function) {
-				const name = expression.function.function.name;
-				const lhs = evaluate(expression.function.argument);
-				const rhs = evaluate(expression.argument);
-				if (name === "+") return lhs + rhs;
-				else if (name === "-") return lhs - rhs;
-				else if (name === "*") return lhs * rhs;
-				else if (name === "/") return lhs / rhs;
-				throw new Error(`Unknown operator ${name}`);
-			} else {
-				throw new Error("Unimplemented calling non-named function");
-			}
-		} else {
-			throw new Error("Unimplemented calling non-named function");
-		}
+	if (expression.arguments.length == 0) {
+		if (expression.on === "x") return x;
+		if (expression.on === "y") return y;
+		return parseFloat(expression.on)
+	} else if (expression.arguments.length == 1) {
+		const operand = evaluate(expression.arguments[0]);
+		if (expression.on === "-") return -operand;
+		if (expression.on === "sin") return Math.sin(operand);
+
+		throw new Error("Unknown operator " + expression.on);
+	} else if (expression.arguments.length == 2) {
+		const lhs = evaluate(expression.arguments[0]), rhs = evaluate(expression.arguments[1]);
+		if (expression.on === "+") return lhs + rhs;
+		if (expression.on === "-") return lhs - rhs;
+		if (expression.on === "*") return lhs * rhs;
+		if (expression.on === "/") return lhs / rhs;
+
+		throw new Error("Unknown operator " + expression.on);
 	} else {
-		throw new Error("Unreachable");
+		throw new Error("Unknown expression");
 	}
 }
