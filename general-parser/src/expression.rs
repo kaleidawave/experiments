@@ -98,7 +98,7 @@ where
 					configuration,
 					allocator,
 					prefix.precedence,
-					None,
+					break_before,
 				);
 
 				let mut arguments: Vec<Expression<_>, &Allocator> = Vec::new_in(allocator);
@@ -124,7 +124,7 @@ where
 					configuration,
 					allocator,
 					operator.precedence,
-					None,
+					break_before,
 				);
 
 				let mut arguments: Vec<Expression<_>, &Allocator> = Vec::new_in(allocator);
@@ -173,38 +173,38 @@ where
 					let mut arguments = Vec::new_in(allocator);
 
 					// TODO WIP check
-					if precedence == 0 {
-						while reader.starts_with_value() {
-							let Configuration {
-								binary_operators,
-								postfix_ternary_operators,
-								postfix_unary_operators,
-								..
-							} = &configuration;
+					while reader.starts_with_value() {
+						let Configuration {
+							binary_operators,
+							postfix_ternary_operators,
+							postfix_unary_operators,
+							..
+						} = &configuration;
 
-							let is_operator = binary_operators
+						let should_break = binary_operators
+							.iter()
+							.any(|operator| reader.starts_with(operator.representation))
+							|| postfix_ternary_operators
+								.iter()
+								.any(|operator| reader.starts_with(operator.parts.0))
+							|| postfix_unary_operators
 								.iter()
 								.any(|operator| reader.starts_with(operator.representation))
-								|| postfix_ternary_operators
-									.iter()
-									.any(|operator| reader.starts_with(operator.parts.0))
-								|| postfix_unary_operators
-									.iter()
-									.any(|operator| reader.starts_with(operator.representation));
+							|| break_before
+								.is_some_and(|break_before| reader.starts_with(break_before));
 
-							if is_operator {
-								break;
-							}
-
-							let expression = Self::from_reader_with_precedence(
-								reader,
-								configuration,
-								allocator,
-								1,
-								None,
-							);
-							arguments.push(expression);
+						if should_break {
+							break;
 						}
+
+						let expression = Self::from_reader_with_precedence(
+							reader,
+							configuration,
+							allocator,
+							1,
+							break_before,
+						);
+						arguments.push(expression);
 					}
 
 					Expression { on, arguments }
@@ -290,7 +290,11 @@ where
 						let on = T::from_str(operator.representation);
 						Expression { on, arguments }
 					} else {
-						panic!();
+						panic!(
+							"Expected {part} found {found}",
+							part = postfix.parts.1,
+							found = reader.current()
+						);
 					}
 				}
 			} else if let Some(operator) = configuration
@@ -309,7 +313,7 @@ where
 					configuration,
 					allocator,
 					operator.precedence,
-					None,
+					break_before,
 				);
 
 				let mut arguments = Vec::new_in(allocator);
@@ -345,7 +349,7 @@ where
 					configuration,
 					allocator,
 					operator.precedence,
-					None,
+					break_before,
 				);
 				let mut arguments = Vec::new_in(allocator);
 				arguments.push(top);
