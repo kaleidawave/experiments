@@ -58,7 +58,8 @@ impl<'a> Lexer<'a> {
 	pub(crate) fn starts_with_value(&mut self) -> bool {
 		self.skip();
 		let current = self.current();
-		current.starts_with(|chr: char| chr.is_alphanumeric() || matches!(chr, '"' | '\'' | '(' | '['))
+		current
+			.starts_with(|chr: char| chr.is_alphanumeric() || matches!(chr, '"' | '\'' | '(' | '['))
 	}
 
 	pub(crate) fn advance(&mut self, idx: usize) {

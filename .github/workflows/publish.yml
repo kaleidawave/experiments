@@ -27,22 +27,21 @@ jobs:
       working-directory: ${{ matrix.project }}
 
     - name: Test
-      continue-on-error: true # TODO temp
       run: cargo test
       working-directory: ${{ matrix.project }}
 
     - name: Test (JavaScript)
-      continue-on-error: true # TODO temp
       run: bun run test
       working-directory: ${{ matrix.project }}/javascript
 
     - name: Lint
       run: cargo clippy
-      continue-on-error: true # TODO temp
       working-directory: ${{ matrix.project }}
 
   publish-assets:
     needs: check
+
+    if: false
 
     permissions: write-all
 
@@ -150,7 +149,6 @@ jobs:
       #     working-directory: ${{ matrix.library }}
 
       - name: Publish package
-        if: false
         run: npx jsr publish
         working-directory: general-parser/javascript
 
@@ -161,5 +159,3 @@ jobs:
           git add .
           git commit -m "Release: ${{ steps.update-field.outputs.general-parser }}"
           git push origin ${{ steps.checkout.outputs.ref }}
-
-  

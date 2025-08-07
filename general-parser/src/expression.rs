@@ -277,7 +277,7 @@ where
 
 					if let Some(operator) = substitute_binary_operator {
 						debug_assert!(
-							!(return_precedence > operator.precedence),
+							return_precedence <= operator.precedence,
 							"binary operator {bop_prec} not equal to ternary {tern_prec} ({return_precedence})",
 							bop_prec = operator.precedence,
 							tern_prec = postfix.precedence
