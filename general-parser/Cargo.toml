@@ -1,6 +1,6 @@
 [package]
 name = "general-parser"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Ben <kaleidawave@gmail.com>"]
 edition = "2024"
 description = "Configurable parser include Lisp S-expr with extensions for more inline mathematical notation"
