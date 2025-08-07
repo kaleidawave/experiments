@@ -47,6 +47,7 @@ impl<'a> Lexer<'a> {
 		self.skip();
 		let current = self.current();
 		let matches = current.starts_with(slice);
+		// fix for AND
 		let is_not_actually_operator = matches
 			&& slice.chars().all(char::is_alphanumeric)
 			&& current[slice.len()..].chars().next().is_some_and(char::is_alphanumeric);

@@ -42,9 +42,6 @@ jobs:
       working-directory: ${{ matrix.project }}
 
   publish-assets:
-    # TEMP
-    if: false
-
     needs: check
 
     permissions: write-all
@@ -132,7 +129,7 @@ jobs:
 
       - name: Update field
         id: update-field
-        run: crates-release change-version 'patch'
+        run: crates-release change-version patch
         working-directory: ${{ matrix.library }}
 
       - uses: rust-lang/crates-io-auth-action@v1
@@ -143,6 +140,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         working-directory: ${{ matrix.library }}
 
+      # Handled by binary
       # - name: Crates publish
       #   uses: kaleidawave/crates-release-gh-action@improvements
       #   id: release

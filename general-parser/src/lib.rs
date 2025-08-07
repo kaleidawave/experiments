@@ -2,7 +2,7 @@ pub mod configuration;
 pub mod expression;
 pub mod lexer;
 
-pub use configuration::{Adjacency, BinaryOperator, Configuration, UnaryOperator};
+pub use configuration::{Adjacency, BinaryOperator, Configuration, TernaryOperator, UnaryOperator};
 pub use expression::{Expression, ExpressionRepresentation};
 pub use lexer::Lexer;
 

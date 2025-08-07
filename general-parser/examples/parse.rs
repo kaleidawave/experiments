@@ -1,5 +1,6 @@
 use general_parser::{
-	BinaryOperator, Configuration, Expression, ExpressionRepresentation, UnaryOperator,
+	Adjacency, BinaryOperator, Configuration, Expression, ExpressionRepresentation,
+	TernaryOperator, UnaryOperator,
 };
 
 fn main() {
@@ -10,20 +11,27 @@ fn main() {
 		return;
 	}
 
-	let configuration = Configuration {
-		binary_operators: vec![
-			BinaryOperator { representation: "*", precedence: 4 },
-			BinaryOperator { representation: "+", precedence: 3 },
-		],
-		..Default::default()
-	};
+	if let Some(path) = std::env::args().nth(1) {
+		let source = std::fs::read_to_string(&path).unwrap();
+		let (configuration, source) = extract_configuration_and_source(&source);
 
-	if let Some(source) = std::env::args().nth(1) {
+		eprintln!("{configuration:?}");
+
 		let allocator = bumpalo::Bump::new();
 		let expression: Expression<&str> =
 			Expression::from_string(&source, &configuration, &allocator);
-		eprintln!("{expression:#?}");
+
+		let expression = ExpressionRepresentation(&expression);
+		println!("{source}\n -> {expression}");
 	} else {
+		let configuration = Configuration {
+			binary_operators: vec![
+				BinaryOperator { representation: "*", precedence: 4 },
+				BinaryOperator { representation: "+", precedence: 3 },
+			],
+			..Default::default()
+		};
+
 		let sources: &[&str] = &["(x (a * b) (d * 2 + e))", "(x (a b) (c d e))"];
 
 		for source in sources {
@@ -31,7 +39,7 @@ fn main() {
 			let expression: Expression<&str> =
 				Expression::from_string(source, &configuration, &allocator);
 			let expression = ExpressionRepresentation(&expression);
-			eprintln!("{expression}");
+			eprintln!("{source}\n -> {expression}");
 		}
 	}
 }
@@ -54,46 +62,7 @@ fn run_interactive() {
 		if line == "end" {
 			let output = String::from_utf8_lossy(&buf);
 
-			let (configuration, source) = if let Some((config, source)) = output.split_once("\n---")
-			{
-				let mut configuration = Configuration::default();
-				for line in config.lines() {
-					let (adjacent, operation) = if let Some(rest) = line.strip_suffix(" (adjacent)")
-					{
-						(true, rest)
-					} else {
-						(false, line)
-					};
-					let (syntax, precedence) = operation.split_once(' ').unwrap();
-					let precedence: u8 = precedence.parse().expect("invalid precedence");
-					if let Some(syntax) = syntax.strip_prefix('_') {
-						if let Some(representation) = syntax.strip_suffix('_') {
-							let operator = BinaryOperator { representation, precedence };
-							if adjacent {
-								configuration.adjacency = Some(general_parser::Adjacency {
-									operator,
-									functions: Vec::new(),
-								});
-							} else {
-								configuration.binary_operators.push(operator);
-							}
-						} else {
-							let representation = syntax;
-							configuration
-								.postfix_unary_operators
-								.push(UnaryOperator { representation, precedence });
-						}
-					} else {
-						let representation = syntax.strip_suffix('_').unwrap();
-						configuration
-							.prefix_unary_operators
-							.push(UnaryOperator { representation, precedence });
-					}
-				}
-				(configuration, source)
-			} else {
-				(Configuration::default(), &*output)
-			};
+			let (configuration, source) = extract_configuration_and_source(&output);
 
 			// eprintln!("{configuration:?} {source}");
 
@@ -117,4 +86,73 @@ fn run_interactive() {
 		buf.extend_from_slice(line.as_bytes());
 		buf.push(b'\n');
 	}
+}
+
+fn extract_configuration_and_source(input: &str) -> (Configuration<'_>, &str) {
+	if let Some((config, source)) = input.split_once("\n---") {
+		let mut configuration = Configuration::default();
+		for line in config.lines().map(str::trim_end) {
+			let (adjacent, rest) = if let Some(rest) = line.strip_suffix(" (adjacent)") {
+				(true, rest)
+			} else {
+				(false, line)
+			};
+
+			let (name, rest) = if let Some((name, rest)) = rest.split_once(':')
+				&& name.trim_end().chars().all(is_identifier)
+			{
+				(name.trim_end(), rest)
+			} else {
+				("", rest)
+			};
+
+			let (syntax, precedence) = rest.split_once('#').unwrap_or((rest, "1"));
+			let precedence: u8 = precedence.parse().expect("invalid precedence");
+			let parts: Vec<_> = syntax.trim().split('_').map(str::trim).collect();
+
+			match parts.as_slice() {
+				["", first, part1, part2] => {
+					configuration.postfix_ternary_operators.push(TernaryOperator {
+						name,
+						parts: (first, part1, part2),
+						precedence,
+					});
+				}
+				[first, part1, part2, ""] => {
+					configuration.prefix_ternary_operators.push(TernaryOperator {
+						name,
+						parts: (first, part1, part2),
+						precedence,
+					});
+				}
+				["", binary_operator, ""] => {
+					let operator = BinaryOperator { representation: binary_operator, precedence };
+					if adjacent {
+						configuration.adjacency =
+							Some(Adjacency { operator, functions: Vec::default() });
+					} else {
+						configuration.binary_operators.push(operator);
+					}
+				}
+				["", after] => {
+					configuration
+						.postfix_unary_operators
+						.push(UnaryOperator { representation: after, precedence });
+				}
+				[before, ""] => {
+					configuration
+						.prefix_unary_operators
+						.push(UnaryOperator { representation: before, precedence });
+				}
+				sequence => panic!("unknown sequence {sequence:?}"),
+			}
+		}
+		(configuration, source.trim())
+	} else {
+		(Configuration::default(), input.trim())
+	}
+}
+
+fn is_identifier(chr: char) -> bool {
+	chr.is_alphanumeric() || matches!(chr, '_' | '$')
 }

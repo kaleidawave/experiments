@@ -18,11 +18,11 @@ where
 {
 	pub fn from_string(
 		source: &'a str,
-		config: &'a Configuration,
+		configuration: &'a Configuration,
 		allocator: &'a Allocator,
 	) -> Self {
 		let mut reader = Lexer::new(source);
-		let this = Self::from_reader(&mut reader, config, allocator);
+		let this = Self::from_reader(&mut reader, configuration, allocator);
 		reader.skip();
 		if !reader.finished() {
 			panic!("not finished {:?}", reader.current());
@@ -32,110 +32,272 @@ where
 
 	pub fn from_reader(
 		reader: &mut Lexer<'a>,
-		config: &'a Configuration,
+		configuration: &'a Configuration,
 		allocator: &'a Allocator,
 	) -> Self {
-		Self::from_reader_with_precedence(reader, config, allocator, 0)
+		Self::from_reader_with_precedence(reader, configuration, allocator, 0, None)
 	}
 
 	pub(crate) fn from_reader_with_precedence(
 		reader: &mut Lexer<'a>,
-		config: &'a Configuration,
+		configuration: &'a Configuration,
 		allocator: &'a Allocator,
 		precedence: u8,
+		break_before: Option<&'a str>,
 	) -> Self {
-		let operator = config
-			.prefix_unary_operators
-			.iter()
-			.find(|operator| reader.starts_with(operator.representation));
-
-		let top = if let Some(operator) = operator {
-			// hmm
-			// if precedence > operator.precedence {
-			//     return top;
-			// }
-			reader.advance(operator.representation.len());
-			let operand =
-				Self::from_reader_with_precedence(reader, config, allocator, operator.precedence);
-			let mut arguments: Vec<Expression<_>, &Allocator> = Vec::new_in(allocator);
-			arguments.push(operand);
-			Expression { on: T::from_str(operator.representation), arguments }
-		} else if reader.starts_with("(") {
+		if reader.starts_with("(") {
 			reader.advance(1);
-			let value = Expression::from_reader(reader, config, allocator);
+			let value = Expression::from_reader(reader, configuration, allocator);
 			if reader.starts_with(")") {
 				reader.advance(1);
+				value
 			} else {
 				panic!("no close paren {current:?}", current = reader.current());
-			};
-
-			value
+			}
 		} else {
-			let identifier = reader.parse_identifier();
-
-			if let Some(ref adjacency) = config.adjacency
-				&& !adjacency.functions.contains(&identifier)
+			let top = if let Some(prefix) = configuration
+				.prefix_ternary_operators
+				.iter()
+				.find(|operator| reader.starts_with(operator.parts.0))
 			{
-				let mut chars = identifier.char_indices();
+				// hmm
+				// if precedence.order > operator.precedence {
+				//     return top;
+				// }
 
-				let first: Self = {
-					let (idx, chr) = chars.next().unwrap();
-					let identifier = &identifier[idx..(idx + chr.len_utf8())];
-					Expression { on: T::from_str(identifier), arguments: Vec::new_in(allocator) }
-				};
+				reader.advance(prefix.parts.0.len());
 
-				let mut top = first;
+				let next = Self::from_reader_with_precedence(
+					reader,
+					configuration,
+					allocator,
+					prefix.precedence,
+					Some(prefix.parts.1),
+				);
+				if reader.starts_with(prefix.parts.1) {
+					reader.advance(prefix.parts.1.len());
+				} else {
+					// TODO check prefix operators
+					panic!("{:?}", (reader.current(), prefix.parts.1));
+				}
 
-				for (idx, chr) in chars {
-					let identifier = &identifier[idx..(idx + chr.len_utf8())];
-					let rhs = Expression {
-						on: T::from_str(identifier),
-						arguments: Vec::new_in(allocator),
+				let lhs = Self::from_reader_with_precedence(
+					reader,
+					configuration,
+					allocator,
+					prefix.precedence,
+					Some(prefix.parts.2),
+				);
+				if reader.starts_with(prefix.parts.2) {
+					reader.advance(prefix.parts.2.len());
+				} else {
+					panic!()
+				}
+				let rhs = Self::from_reader_with_precedence(
+					reader,
+					configuration,
+					allocator,
+					prefix.precedence,
+					None,
+				);
+
+				let mut arguments: Vec<Expression<_>, &Allocator> = Vec::new_in(allocator);
+				arguments.push(next);
+				arguments.push(lhs);
+				arguments.push(rhs);
+
+				let on = T::from_str(prefix.name);
+				Expression { on, arguments }
+			} else if let Some(operator) = configuration
+				.prefix_unary_operators
+				.iter()
+				.find(|operator| reader.starts_with(operator.representation))
+			{
+				// hmm
+				// if precedence > operator.precedence {
+				//     return top;
+				// }
+
+				reader.advance(operator.representation.len());
+				let operand = Self::from_reader_with_precedence(
+					reader,
+					configuration,
+					allocator,
+					operator.precedence,
+					None,
+				);
+
+				let mut arguments: Vec<Expression<_>, &Allocator> = Vec::new_in(allocator);
+				arguments.push(operand);
+				Expression { on: T::from_str(operator.representation), arguments }
+			} else {
+				let identifier = reader.parse_identifier();
+
+				if let Some(ref adjacency) = configuration.adjacency
+					&& !adjacency.functions.contains(&identifier)
+				{
+					// TODO slice iterator
+					let mut chars = identifier.char_indices();
+
+					let first: Self = {
+						let (idx, chr) = chars.next().unwrap();
+						let identifier = &identifier[idx..(idx + chr.len_utf8())];
+						Expression {
+							on: T::from_str(identifier),
+							arguments: Vec::new_in(allocator),
+						}
 					};
+
+					let mut top = first;
+
+					for (idx, chr) in chars {
+						let identifier = &identifier[idx..(idx + chr.len_utf8())];
+						let rhs = Expression {
+							on: T::from_str(identifier),
+							arguments: Vec::new_in(allocator),
+						};
+
+						let mut arguments = Vec::new_in(allocator);
+						arguments.push(top);
+						arguments.push(rhs);
+						top = Expression {
+							on: T::from_str(adjacency.operator.representation),
+							arguments,
+						};
+					}
+
+					top
+				} else {
+					let on = T::from_str(identifier);
 
 					let mut arguments = Vec::new_in(allocator);
-					arguments.push(top);
-					arguments.push(rhs);
-					top = Expression {
-						on: T::from_str(adjacency.operator.representation),
-						arguments,
-					};
-				}
 
-				top
-			} else {
-				let on = T::from_str(identifier);
+					// TODO WIP check
+					if precedence == 0 {
+						while reader.starts_with_value() {
+							let Configuration {
+								binary_operators,
+								postfix_ternary_operators,
+								postfix_unary_operators,
+								..
+							} = &configuration;
 
-				let mut arguments = Vec::new_in(allocator);
-				// TODO WIP
-				if precedence == 0 {
-					while reader.starts_with_value() {
-						let expression =
-							Self::from_reader_with_precedence(reader, config, allocator, 1);
-						arguments.push(expression);
+							let is_operator = binary_operators
+								.iter()
+								.any(|operator| reader.starts_with(operator.representation))
+								|| postfix_ternary_operators
+									.iter()
+									.any(|operator| reader.starts_with(operator.parts.0))
+								|| postfix_unary_operators
+									.iter()
+									.any(|operator| reader.starts_with(operator.representation));
+
+							if is_operator {
+								break;
+							}
+
+							let expression = Self::from_reader_with_precedence(
+								reader,
+								configuration,
+								allocator,
+								1,
+								None,
+							);
+							arguments.push(expression);
+						}
 					}
-				}
 
-				Expression { on, arguments }
-			}
-		};
-		Self::append_operators(reader, config, allocator, precedence, top)
+					Expression { on, arguments }
+				}
+			};
+
+			Self::append_operators(reader, configuration, allocator, precedence, break_before, top)
+		}
 	}
 
 	fn append_operators(
 		reader: &mut Lexer<'a>,
-		config: &'a Configuration,
+		configuration: &'a Configuration,
 		allocator: &'a Allocator,
 		return_precedence: u8,
+		break_before: Option<&'a str>,
 		mut top: Self,
 	) -> Self {
 		while !reader.finished() {
-			let binary_operator = config
+			if break_before.is_some_and(|break_before| reader.starts_with(break_before)) {
+				break;
+			}
+
+			top = if let Some(postfix) = configuration
+				.postfix_ternary_operators
+				.iter()
+				.find(|operator| reader.starts_with(operator.parts.0))
+			{
+				if return_precedence > postfix.precedence {
+					return top;
+				}
+
+				reader.advance(postfix.parts.0.len());
+				let lhs = Self::from_reader_with_precedence(
+					reader,
+					configuration,
+					allocator,
+					postfix.precedence,
+					Some(postfix.parts.1),
+				);
+
+				if reader.starts_with(postfix.parts.1) {
+					reader.advance(postfix.parts.1.len());
+					let rhs = Self::from_reader_with_precedence(
+						reader,
+						configuration,
+						allocator,
+						postfix.precedence,
+						Some(postfix.parts.2),
+					);
+
+					if reader.starts_with(postfix.parts.2) {
+						reader.advance(postfix.parts.2.len());
+					} else {
+						panic!()
+					}
+
+					let mut arguments: Vec<Expression<_>, &Allocator> = Vec::new_in(allocator);
+					arguments.push(top);
+					arguments.push(lhs);
+					arguments.push(rhs);
+
+					let on = T::from_str(postfix.name);
+					Expression { on, arguments }
+				} else {
+					let substitute_binary_operator = configuration
+						.binary_operators
+						.iter()
+						.find(|operator| operator.representation == postfix.parts.0);
+
+					if let Some(operator) = substitute_binary_operator {
+						debug_assert!(
+							!(return_precedence > operator.precedence),
+							"binary operator {bop_prec} not equal to ternary {tern_prec} ({return_precedence})",
+							bop_prec = operator.precedence,
+							tern_prec = postfix.precedence
+						);
+
+						let mut arguments = Vec::new_in(allocator);
+						arguments.push(top);
+						arguments.push(lhs);
+
+						let on = T::from_str(operator.representation);
+						Expression { on, arguments }
+					} else {
+						panic!();
+					}
+				}
+			} else if let Some(operator) = configuration
 				.binary_operators
 				.iter()
-				.find(|operator| reader.starts_with(operator.representation));
-
-			if let Some(operator) = binary_operator {
+				.find(|operator| reader.starts_with(operator.representation))
+			{
 				if return_precedence > operator.precedence {
 					return top;
 				}
@@ -144,53 +306,54 @@ where
 				let lhs = top;
 				let rhs = Self::from_reader_with_precedence(
 					reader,
-					config,
+					configuration,
 					allocator,
 					operator.precedence,
+					None,
 				);
 
 				let mut arguments = Vec::new_in(allocator);
 				arguments.push(lhs);
 				arguments.push(rhs);
 
-				top = Expression { on: T::from_str(operator.representation), arguments };
-			} else {
-				let unary_operator = config
-					.postfix_unary_operators
-					.iter()
-					.find(|operator| reader.starts_with(operator.representation));
-
-				if let Some(operator) = unary_operator {
-					if return_precedence > operator.precedence {
-						return top;
-					}
-					reader.advance(operator.representation.len());
-					let mut arguments = Vec::new_in(allocator);
-					arguments.push(top);
-
-					top = Expression { on: T::from_str(operator.representation), arguments };
-				} else if reader.current().starts_with('(')
-					&& let Some(adjacency) = &config.adjacency
-				{
-					let operator = adjacency.operator;
-					if return_precedence > operator.precedence {
-						return top;
-					}
-
-					let rhs = Self::from_reader_with_precedence(
-						reader,
-						config,
-						allocator,
-						operator.precedence,
-					);
-					let mut arguments = Vec::new_in(allocator);
-					arguments.push(top);
-					arguments.push(rhs);
-					top = Expression { on: T::from_str(operator.representation), arguments };
-				} else {
-					break;
+				let on = T::from_str(operator.representation);
+				Expression { on, arguments }
+			} else if let Some(operator) = configuration
+				.postfix_unary_operators
+				.iter()
+				.find(|operator| reader.starts_with(operator.representation))
+			{
+				if return_precedence > operator.precedence {
+					return top;
 				}
-			}
+				reader.advance(operator.representation.len());
+				let mut arguments = Vec::new_in(allocator);
+				arguments.push(top);
+
+				let on = T::from_str(operator.representation);
+				Expression { on, arguments }
+			} else if reader.current().starts_with('(')
+				&& let Some(adjacency) = &configuration.adjacency
+			{
+				let operator = adjacency.operator;
+				if return_precedence > operator.precedence {
+					return top;
+				}
+
+				let rhs = Self::from_reader_with_precedence(
+					reader,
+					configuration,
+					allocator,
+					operator.precedence,
+					None,
+				);
+				let mut arguments = Vec::new_in(allocator);
+				arguments.push(top);
+				arguments.push(rhs);
+				Expression { on: T::from_str(operator.representation), arguments }
+			} else {
+				break;
+			};
 		}
 		top
 	}
