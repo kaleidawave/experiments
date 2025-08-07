@@ -106,10 +106,10 @@ fn extract_configuration_and_source(input: &str) -> (Configuration<'_>, &str) {
 				("", rest)
 			};
 
-			let (syntax, precedence) = rest.split_once('#').unwrap_or((rest, "1"));
+			let (syntax, precedence) = rest.rsplit_once('#').unwrap_or((rest, "1"));
 			let precedence: u8 = precedence.parse().expect("invalid precedence");
-			let parts: Vec<_> = syntax.trim().split('_').map(str::trim).collect();
 
+			let parts: Vec<_> = syntax.trim().split('_').map(str::trim).collect();
 			match parts.as_slice() {
 				["", first, part1, part2] => {
 					configuration.postfix_ternary_operators.push(TernaryOperator {

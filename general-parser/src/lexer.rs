@@ -47,7 +47,7 @@ impl<'a> Lexer<'a> {
 		self.skip();
 		let current = self.current();
 		let matches = current.starts_with(slice);
-		// fix for AND
+		// fix for or with orpington
 		let is_not_actually_operator = matches
 			&& slice.chars().all(char::is_alphanumeric)
 			&& current[slice.len()..].chars().next().is_some_and(char::is_alphanumeric);
@@ -58,7 +58,7 @@ impl<'a> Lexer<'a> {
 	pub(crate) fn starts_with_value(&mut self) -> bool {
 		self.skip();
 		let current = self.current();
-		current.starts_with(|chr: char| chr.is_alphanumeric() || matches!(chr, '"' | '(' | '['))
+		current.starts_with(|chr: char| chr.is_alphanumeric() || matches!(chr, '"' | '\'' | '(' | '['))
 	}
 
 	pub(crate) fn advance(&mut self, idx: usize) {
