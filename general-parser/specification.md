@@ -102,11 +102,24 @@ x = y
 ```
 _*_ #4 (adjacent)
 ---
-23xyz
+xyz
 ```
 
 ```
-(* 23 (* z (* y x)))
+(* z (* y x))
+```
+
+### Adjacency with numbers
+
+```
+_*_ #4 (adjacent)
+_+_ #3
+---
+23xy + 2.7z
+```
+
+```
+(+ (* 23 (* y x)) (* 2.7 z))
 ```
 
 ### Adjacency with parenthesised/grouped expression

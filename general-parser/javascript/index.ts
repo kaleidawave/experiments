@@ -35,7 +35,7 @@ class Lexer {
 			const isLowercase = 0x61 <= code && code <= 0x7a;
 			const isUppercase = 0x41 <= code && code <= 0x5a;
 			const isAlphanumeric = isDigit || isLowercase || isUppercase;
-			if (!isAlphanumeric) {
+			if (!(isAlphanumeric || chr === '.')) {
 				return current.slice(0, this.#idx - start);
 			}
 			this.advance();
@@ -148,6 +148,15 @@ function parseExpressionFromReader(
 		first = parseExpressionFromReader(reader, configuration, 0);
 		if (reader.startsWith(")")) {
 			reader.advance(1);
+
+			if (configuration.adjacency && reader.startsWithValue()) {
+				let identifier = reader.parseIdentifier();
+				const rhs = { on: identifier, arguments: [] };
+				first = {
+					on: configuration.adjacency.operator.representation,
+					arguments: [first, rhs]
+				};
+			}
 		} else {
 			throw Error(`no close paren ${reader.current()}`);
 		}
@@ -205,38 +214,37 @@ function parseExpressionFromReader(
 	} else {
 		const identifier = reader.parseIdentifier();
 
-		if (configuration.adjacency && !configuration.adjacency.functions.includes(identifier)) {
-			first = { on: identifier[0], arguments: [] };
+		if (configuration.adjacency) {
+			const parts = splitNumber(identifier);
 
-			for (let i = 1; i < identifier.length; i++) {
-				const rhs: Expression = { on: identifier[i], arguments: [] };
-				first = {
-					on: configuration.adjacency.operator.representation,
-					arguments: [first, rhs]
+			if (parts[1]) {
+				const isFunction = configuration.adjacency.functions.includes(parts[1]);
+				if (isFunction) {
+					first = parseExpressionCall(reader, configuration, breakBefore, parts[1]);
+				} else {
+					first = { on: parts[1][0], arguments: [] };
+					for (let i = 1; i < parts[1].length; i++) {
+						const rhs: Expression = { on: parts[1][i], arguments: [] };
+						first = {
+							on: configuration.adjacency.operator.representation,
+							arguments: [rhs, first]
+						}
+					}
 				}
+				if (parts[0]) {
+					const numeric = { on: parts[0], arguments: [] };
+					first = {
+						on: configuration.adjacency.operator.representation,
+						arguments: [numeric, first]
+					}
+				}
+			} else {
+				// exclusively number
+				first = { on: identifier, arguments: [] }
 			}
 		} else {
-			const args: Array<Expression> = [];
-			while (reader.startsWithValue()) {
-				let shouldBreak = configuration.binary_operators.some(op => reader.startsWith(op.representation));
-				shouldBreak ||= configuration.postfix_ternary_operators.some(op => reader.startsWith(op.parts[0]));
-				shouldBreak ||= configuration.postfix_unary_operators.some(op => reader.startsWith(op.representation));
-				shouldBreak ||= breakBefore !== null && reader.startsWith(breakBefore);
-
-				if (shouldBreak) break;
-
-				const expression: Expression = parseExpressionFromReader(
-					reader,
-					configuration,
-					1,
-					breakBefore
-				);
-				args.push(expression);
-			}
-
-			first = { on: identifier, arguments: args };
+			first = parseExpressionCall(reader, configuration, breakBefore, identifier);
 		}
-
 	};
 
 	return parseExpressionFromReaderAfterFirst(
@@ -246,6 +254,34 @@ function parseExpressionFromReader(
 		breakBefore,
 		first
 	)
+}
+
+function parseExpressionCall(
+	reader: Lexer,
+	configuration: Configuration,
+	breakBefore: string | null,
+	on: string
+): Expression {
+	const args: Array<Expression> = [];
+	
+	while (reader.startsWithValue()) {
+		let shouldBreak = configuration.binary_operators.some(op => reader.startsWith(op.representation));
+		shouldBreak ||= configuration.postfix_ternary_operators.some(op => reader.startsWith(op.parts[0]));
+		shouldBreak ||= configuration.postfix_unary_operators.some(op => reader.startsWith(op.representation));
+		shouldBreak ||= breakBefore !== null && reader.startsWith(breakBefore);
+
+		if (shouldBreak) break;
+
+		const expression: Expression = parseExpressionFromReader(
+			reader,
+			configuration,
+			1,
+			breakBefore
+		);
+		args.push(expression);
+	}
+	
+	return { on, arguments: args }
 }
 
 function parseExpressionFromReaderAfterFirst(
@@ -365,6 +401,16 @@ function parseExpressionFromReaderAfterFirst(
 		}
 	}
 	return top
+}
+
+function splitNumber(on: string): [string, string] {
+	for (let i = 0; i < on.length; i++) {
+		const code = on.charCodeAt(i);
+		let numberLike = '0'.charCodeAt(0) <= code && code <= '9'.charCodeAt(0);  
+		numberLike ||= code === '.'.charCodeAt(0);
+		if (!numberLike) return [on.slice(0, i), on.slice(i)] 
+	}
+	return [on, ""]
 }
 
 export function printExpression(expression: Expression): string {

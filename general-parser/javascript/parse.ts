@@ -49,6 +49,11 @@ function extractConfigurationAndSource(input: string): [Configuration, string] {
 				adjacency = true;
 				line = line.slice(0, - " (adjacent)".length);
 			}
+			if (line.endsWith(" (function)")) {
+				const func = line.slice(0, - " (function)".length);
+				configuration.adjacency.functions.push(func);
+				continue;
+			}
 
 			let name = "", precedence = 1;
 			{
