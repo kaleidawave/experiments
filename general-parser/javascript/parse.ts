@@ -1,4 +1,4 @@
-import { BinaryOperator, Configuration, parseExpression, printExpression } from "./index";
+import { BinaryOperator, Configuration, defaultConfiguration, parseExpression, printExpression } from "./index";
 import { readFile } from "node:fs/promises";
 
 if (process.argv.includes("--interactive")) {
@@ -38,14 +38,7 @@ if (process.argv.includes("--interactive")) {
 }
 
 function extractConfigurationAndSource(input: string): [Configuration, string] {
-	const configuration: Configuration = {
-		adjacency: null,
-		binary_operators: [],
-		prefix_ternary_operators: [],
-		postfix_ternary_operators: [],
-		postfix_unary_operators: [],
-		prefix_unary_operators: [],
-	};
+	const configuration: Configuration = defaultConfiguration();
 
 	if (input.includes("\n---")) {
 		const [cfg, source] = input.split("\n---");

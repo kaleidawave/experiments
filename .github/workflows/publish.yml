@@ -125,9 +125,13 @@ jobs:
       - uses: kaleidawave/release-downloader@main
         with:
           items: kaleidawave/crates-release-gh-action@assets[crates-release]
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
 
-      - name: Update field
-        id: update-field
+      - name: Update version
+        id: update-version
         run: crates-release change-version patch
         working-directory: ${{ matrix.library }}
 
@@ -135,26 +139,17 @@ jobs:
         id: auth
 
       - run: cargo publish --allow-dirty
+        working-directory: ${{ matrix.library }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        working-directory: ${{ matrix.library }}
-
-      # Handled by binary
-      # - name: Crates publish
-      #   uses: kaleidawave/crates-release-gh-action@improvements
-      #   id: release
-      #   with:
-      #     version: patch
-      #     crates-token: ${{ steps.auth.outputs.token }}
-      #     working-directory: ${{ matrix.library }}
 
       - name: Publish package on JSR
         run: npx jsr publish --allow-dirty
-        working-directory: general-parser/javascript
+        working-directory: ${{ matrix.library }}/javascript
 
       - name: Publish package on NPM
-        run: npm publish
-        working-directory: general-parser/javascript
+        run: npm publish --provenance
+        working-directory: ${{ matrix.library }}/javascript
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_REGISTRY_TOKEN }}
 
@@ -163,5 +158,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "Release: ${{ steps.update-field.outputs.general-parser }}"
+          git commit -m "Release: ${{ steps.update-version.outputs.general-parser }}"
           git push origin ${{ steps.checkout.outputs.ref }}

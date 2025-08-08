@@ -1,7 +1,8 @@
-import { parseExpression } from "./index.ts";
+import { defaultConfiguration, parseExpression } from "./index.ts";
 import type { Configuration, Expression } from "./index.ts";
 
 const configuration: Configuration = {
+	...defaultConfiguration(),
 	binary_operators: [
 		{ precedence: 1, representation: "+" },
 		{ precedence: 1, representation: "-" },
@@ -11,10 +12,6 @@ const configuration: Configuration = {
 	prefix_unary_operators: [
 		{ precedence: 1, representation: "-" },
 	],
-	adjacency: null,
-	postfix_ternary_operators: [],
-	postfix_unary_operators: [],
-	prefix_ternary_operators: [],
 };
 
 const examples = [

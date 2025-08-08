@@ -1,11 +1,12 @@
 {
 	"name": "general-parser",
-	"version": "0.0.4",
-	"main": "./build.js",
+	"version": "0.0.5",
+	"main": "build.js",
 	"type": "module",
 	"scripts": {
 		"test": "spectra check ../specification.md \"bun run parse.ts --interactive --rpc\"",
 		"prepack": "bun build ./index.ts --outfile build.js --minify",
 		"build": "bun build ./index.ts --outfile build.js --minify"
-	}
+	},
+	"files": []
 }
