@@ -122,6 +122,17 @@ export function parseExpression(
 	return expression
 }
 
+export function defaultConfiguration(): Configuration {
+	return {
+		binary_operators: [],
+		prefix_unary_operators: [],
+		adjacency: null,
+		postfix_ternary_operators: [],
+		postfix_unary_operators: [],
+		prefix_ternary_operators: [],
+	};
+}
+
 function parseExpressionFromReader(
 	reader: Lexer,
 	configuration: Configuration,

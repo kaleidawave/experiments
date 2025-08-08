@@ -1,12 +1,12 @@
 [package]
 name = "general-parser"
-version = "0.0.3"
+version = "0.0.4"
 authors = ["Ben <kaleidawave@gmail.com>"]
 edition = "2024"
-description = "Configurable parser include Lisp S-expr with extensions for more inline mathematical notation"
+description = "Configurable parser for S-expressions with configurable extensions for mathematical notation"
 license = "MIT"
 categories = ["text-processing", "compilers", "parsing"]
-keywords = ["parsering"]
+keywords = ["parsing", "operators"]
 repository = "https://github.com/kaleidawave/experiments"
 
 [features]
@@ -20,6 +20,9 @@ bumpalo = { version = "3.19.0", features = ["collections"] }
 [[test]]
 name = "specification"
 harness = false
+
+[package.metadata]
+associated = ["javascript/jsr.json", "javascript/package.json"]
 
 [package.metadata.commands]
 spectra = 'spectra check ./specification.md "./target/debug/examples/parse --rpc --interactive"'

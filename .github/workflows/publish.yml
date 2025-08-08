@@ -98,7 +98,6 @@ jobs:
         run: |
           FROM="./target/$LEVEL/${{ steps.information.outputs.ASSET_PATH }}${{ matrix.executable-extension }}"
           TO="${{ steps.information.outputs.ASSET_NAME }}-${{ matrix.platform-name }}${{ matrix.executable-extension }}"
-
           gh release upload $GH_RELEASE "$FROM#$TO" --clobber
         shell: bash
         env:
@@ -122,6 +121,7 @@ jobs:
       - id: checkout
         uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: oven-sh/setup-bun@v2
       - uses: kaleidawave/release-downloader@main
         with:
           items: kaleidawave/crates-release-gh-action@assets[crates-release]
@@ -148,9 +148,15 @@ jobs:
       #     crates-token: ${{ steps.auth.outputs.token }}
       #     working-directory: ${{ matrix.library }}
 
-      - name: Publish package
-        run: npx jsr publish
+      - name: Publish package on JSR
+        run: npx jsr publish --allow-dirty
         working-directory: general-parser/javascript
+
+      - name: Publish package on NPM
+        run: npm publish
+        working-directory: general-parser/javascript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_REGISTRY_TOKEN }}
 
       - name: Push updated Cargo.toml
         run: |
