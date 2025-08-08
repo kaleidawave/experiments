@@ -1,4 +1,6 @@
 fn main() -> std::process::ExitCode {
+	dbg!(std::env::args().collect::<Vec<_>>());
+
 	let output = std::process::Command::new("spectra")
 		.arg("check")
 		.arg("./specification.md")

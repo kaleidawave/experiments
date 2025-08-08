@@ -98,6 +98,11 @@ fn extract_configuration_and_source(input: &str) -> (Configuration<'_>, &str) {
 				(false, line)
 			};
 
+			if let Some(rest) = line.strip_suffix(" (function)") {
+				configuration.adjacency.as_mut().expect("expected function").functions.push(rest);
+				continue;
+			}
+
 			let (name, rest) = if let Some((name, rest)) = rest.split_once(':')
 				&& name.trim_end().chars().all(is_identifier)
 			{

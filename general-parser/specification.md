@@ -102,11 +102,11 @@ x = y
 ```
 _*_ #4 (adjacent)
 ---
-3xy
+23xyz
 ```
 
 ```
-(* (* 3 x) y)
+(* 23 (* z (* y x)))
 ```
 
 ### Adjacency with parenthesised/grouped expression
@@ -115,9 +115,22 @@ _*_ #4 (adjacent)
 _*_ #4 (adjacent)
 _+_ #3
 ---
-x(y + 2)
+x(y + 2) + (6 + 7)z
 ```
 
 ```
-(* x (+ y 2))
+(+ (* x (+ y 2)) (* (+ 6 7) z))
+```
+
+### Adjacency with function list
+
+```
+_*_ #4 (adjacent)
+sin (function)
+---
+5sin(6)
+```
+
+```
+(* 5 (sin 6))
 ```

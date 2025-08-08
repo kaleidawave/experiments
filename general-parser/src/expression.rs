@@ -47,9 +47,28 @@ where
 	) -> Self {
 		if reader.starts_with("(") {
 			reader.advance(1);
-			let value = Expression::from_reader(reader, configuration, allocator);
+			let mut value = Expression::from_reader(reader, configuration, allocator);
 			if reader.starts_with(")") {
 				reader.advance(1);
+
+				if let Some(ref adjacency) = configuration.adjacency
+					&& reader.starts_with_value()
+				{
+					let identifier = reader.parse_identifier();
+					let rhs = Expression {
+						on: T::from_str(identifier),
+						arguments: Vec::new_in(allocator),
+					};
+
+					let mut arguments = Vec::new_in(allocator);
+					arguments.push(value);
+					arguments.push(rhs);
+					value = Expression {
+						on: T::from_str(adjacency.operator.representation),
+						arguments,
+					};
+				}
+
 				value
 			} else {
 				panic!("no close paren {current:?}", current = reader.current());
@@ -133,81 +152,74 @@ where
 			} else {
 				let identifier = reader.parse_identifier();
 
-				if let Some(ref adjacency) = configuration.adjacency
-					&& !adjacency.functions.contains(&identifier)
-				{
-					// TODO slice iterator
-					let mut chars = identifier.char_indices();
+				if let Some(ref adjacency) = configuration.adjacency {
+					let parts = identifier
+						.find(|chr| !matches!(chr, '0'..='9' | '.'))
+						.map(|idx| identifier.split_at(idx));
 
-					let first: Self = {
-						let (idx, chr) = chars.next().unwrap();
-						let identifier = &identifier[idx..(idx + chr.len_utf8())];
+					if let Some((numeric, item)) = parts {
+						let top = if adjacency.functions.contains(&item) {
+							let on = T::from_str(item);
+							Expression::parse_function_call(
+								reader,
+								configuration,
+								allocator,
+								break_before,
+								on,
+							)
+						} else {
+							let (prefix, after) = item.split_at(1);
+							let mut top = Expression {
+								on: T::from_str(prefix),
+								arguments: Vec::new_in(allocator),
+							};
+							for slice in chars_slices(after) {
+								let item = Expression {
+									on: T::from_str(slice),
+									arguments: Vec::new_in(allocator),
+								};
+
+								let mut arguments = Vec::new_in(allocator);
+								arguments.push(item);
+								arguments.push(top);
+								top = Expression {
+									on: T::from_str(adjacency.operator.representation),
+									arguments,
+								};
+							}
+							top
+						};
+						if numeric.is_empty() {
+							top
+						} else {
+							let item = Expression {
+								on: T::from_str(numeric),
+								arguments: Vec::new_in(allocator),
+							};
+
+							let mut arguments = Vec::new_in(allocator);
+							arguments.push(item);
+							arguments.push(top);
+							Expression {
+								on: T::from_str(adjacency.operator.representation),
+								arguments,
+							}
+						}
+					} else {
 						Expression {
 							on: T::from_str(identifier),
 							arguments: Vec::new_in(allocator),
 						}
-					};
-
-					let mut top = first;
-
-					for (idx, chr) in chars {
-						let identifier = &identifier[idx..(idx + chr.len_utf8())];
-						let rhs = Expression {
-							on: T::from_str(identifier),
-							arguments: Vec::new_in(allocator),
-						};
-
-						let mut arguments = Vec::new_in(allocator);
-						arguments.push(top);
-						arguments.push(rhs);
-						top = Expression {
-							on: T::from_str(adjacency.operator.representation),
-							arguments,
-						};
 					}
-
-					top
 				} else {
 					let on = T::from_str(identifier);
-
-					let mut arguments = Vec::new_in(allocator);
-
-					// TODO WIP check
-					while reader.starts_with_value() {
-						let Configuration {
-							binary_operators,
-							postfix_ternary_operators,
-							postfix_unary_operators,
-							..
-						} = &configuration;
-
-						let should_break = binary_operators
-							.iter()
-							.any(|operator| reader.starts_with(operator.representation))
-							|| postfix_ternary_operators
-								.iter()
-								.any(|operator| reader.starts_with(operator.parts.0))
-							|| postfix_unary_operators
-								.iter()
-								.any(|operator| reader.starts_with(operator.representation))
-							|| break_before
-								.is_some_and(|break_before| reader.starts_with(break_before));
-
-						if should_break {
-							break;
-						}
-
-						let expression = Self::from_reader_with_precedence(
-							reader,
-							configuration,
-							allocator,
-							1,
-							break_before,
-						);
-						arguments.push(expression);
-					}
-
-					Expression { on, arguments }
+					Expression::parse_function_call(
+						reader,
+						configuration,
+						allocator,
+						break_before,
+						on,
+					)
 				}
 			};
 
@@ -361,6 +373,54 @@ where
 		}
 		top
 	}
+
+	fn parse_function_call(
+		reader: &mut Lexer<'a>,
+		configuration: &'a Configuration,
+		allocator: &'a Allocator,
+		break_before: Option<&'a str>,
+		on: T,
+	) -> Self {
+		let mut arguments = Vec::new_in(allocator);
+
+		while reader.starts_with_value() {
+			let Configuration {
+				binary_operators,
+				postfix_ternary_operators,
+				postfix_unary_operators,
+				..
+			} = &configuration;
+
+			let should_break =
+				binary_operators.iter().any(|operator| reader.starts_with(operator.representation))
+					|| postfix_ternary_operators
+						.iter()
+						.any(|operator| reader.starts_with(operator.parts.0))
+					|| postfix_unary_operators
+						.iter()
+						.any(|operator| reader.starts_with(operator.representation))
+					|| break_before.is_some_and(|break_before| reader.starts_with(break_before));
+
+			if should_break {
+				break;
+			}
+
+			let expression = Self::from_reader_with_precedence(
+				reader,
+				configuration,
+				allocator,
+				1,
+				break_before,
+			);
+			arguments.push(expression);
+		}
+
+		Expression { on, arguments }
+	}
+}
+
+fn chars_slices(slice: &str) -> impl Iterator<Item = &str> {
+	slice.char_indices().map(|(idx, chr)| &slice[idx..][..chr.len_utf8()])
 }
 
 pub struct ExpressionRepresentation<'a, T>(pub &'a Expression<'a, T>);
