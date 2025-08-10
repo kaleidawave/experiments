@@ -66,6 +66,10 @@ class Lexer {
 	advance(count: number = 1): void {
 		this.#idx += count;
 	}
+
+	charactersParsed(): number {
+		return this.#idx;
+	}
 }
 
 // TODO what about 'ą'
@@ -120,6 +124,17 @@ export function parseExpression(
 		throw Error(`not finished ${reader.current()}`)
 	}
 	return expression
+}
+
+export function parseExpressionPartial(
+	source: string,
+	configuration: Configuration,
+	breakBefore: string | null
+): [Expression, number] {
+	const reader = new Lexer(source);
+	const expression = parseExpressionFromReader(reader, configuration, 0, breakBefore);
+	const parsed = reader.charactersParsed();
+	return [expression, parsed]
 }
 
 export function defaultConfiguration(): Configuration {
@@ -263,7 +278,7 @@ function parseExpressionCall(
 	on: string
 ): Expression {
 	const args: Array<Expression> = [];
-	
+
 	while (reader.startsWithValue()) {
 		let shouldBreak = configuration.binary_operators.some(op => reader.startsWith(op.representation));
 		shouldBreak ||= configuration.postfix_ternary_operators.some(op => reader.startsWith(op.parts[0]));
@@ -280,7 +295,7 @@ function parseExpressionCall(
 		);
 		args.push(expression);
 	}
-	
+
 	return { on, arguments: args }
 }
 
@@ -406,9 +421,9 @@ function parseExpressionFromReaderAfterFirst(
 function splitNumber(on: string): [string, string] {
 	for (let i = 0; i < on.length; i++) {
 		const code = on.charCodeAt(i);
-		let numberLike = '0'.charCodeAt(0) <= code && code <= '9'.charCodeAt(0);  
+		let numberLike = '0'.charCodeAt(0) <= code && code <= '9'.charCodeAt(0);
 		numberLike ||= code === '.'.charCodeAt(0);
-		if (!numberLike) return [on.slice(0, i), on.slice(i)] 
+		if (!numberLike) return [on.slice(0, i), on.slice(i)]
 	}
 	return [on, ""]
 }

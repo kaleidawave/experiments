@@ -30,6 +30,25 @@ where
 		this
 	}
 
+	/// Read string until expression parsing terminates. Returns the count
+	/// of bytes consumed in building the expression
+	pub fn from_partial_string(
+		source: &'a str,
+		configuration: &'a Configuration,
+		allocator: &'a Allocator,
+		break_before: Option<&'a str>,
+	) -> (Self, usize) {
+		let mut reader = Lexer::new(source);
+		let this = Self::from_reader_with_precedence(
+			&mut reader,
+			configuration,
+			allocator,
+			0,
+			break_before,
+		);
+		(this, reader.bytes_parsed())
+	}
+
 	pub fn from_reader(
 		reader: &mut Lexer<'a>,
 		configuration: &'a Configuration,

@@ -147,3 +147,31 @@ sin (function)
 ```
 (* 5 (sin 6))
 ```
+
+### Partial
+
+```
+partial
+_+_ #3
+---
+x + y // comment
+```
+
+```
+parsed 6 bytes
+(+ x y)
+```
+
+### Partial upto
+
+```
+partial upto end
+_+_ #3
+---
+a b c end
+```
+
+```
+parsed 6 bytes
+(a (b c))
+```

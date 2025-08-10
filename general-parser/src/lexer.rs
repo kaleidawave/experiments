@@ -65,4 +65,8 @@ impl<'a> Lexer<'a> {
 	pub(crate) fn advance(&mut self, idx: usize) {
 		self.idx += idx;
 	}
+
+	pub(crate) fn bytes_parsed(&self) -> usize {
+		self.idx
+	}
 }

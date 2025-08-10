@@ -1,4 +1,4 @@
-import { BinaryOperator, Configuration, defaultConfiguration, parseExpression, printExpression } from "./index";
+import { BinaryOperator, Configuration, defaultConfiguration, parseExpression, parseExpressionPartial, printExpression } from "./index";
 import { readFile } from "node:fs/promises";
 
 if (process.argv.includes("--interactive")) {
@@ -8,9 +8,16 @@ if (process.argv.includes("--interactive")) {
 		if (line == "close") break;
 
 		if (line == "end") {
-			const [configuration, input] = extractConfigurationAndSource(buffer);
-			const expression = parseExpression(input, configuration);
-			console.log(printExpression(expression));
+			const [partial, configuration, input] = extractConfigurationAndSource(buffer);
+			if (partial) {
+				const [expression, parsed] = parseExpressionPartial(input, configuration, partial.before);
+				// TODO conversion here
+				console.log(`parsed ${parsed} bytes`);
+				console.log(printExpression(expression));
+			} else {
+				const expression = parseExpression(input, configuration);
+				console.log(printExpression(expression));
+			}
 			console.log("end");
 			buffer = "";
 			continue
@@ -25,34 +32,54 @@ if (process.argv.includes("--interactive")) {
 	const firstArgument = process.argv[2];
 	if (firstArgument) {
 		const buffer = await readFile(firstArgument);
-		const [configuration, input] = extractConfigurationAndSource(buffer.toString());
-		const expression = parseExpression(input, configuration);
+		const [partial, configuration, input] = extractConfigurationAndSource(buffer.toString());
 		console.log(configuration);
-		console.log(printExpression(expression));
+		if (partial) {
+			const [expression, parsed] = parseExpressionPartial(input, configuration, partial.before);
+			// TODO conversion here
+			console.log(`parsed ${parsed} bytes`);
+			console.log(printExpression(expression));
+		} else {
+			const expression = parseExpression(input, configuration);
+			console.log(printExpression(expression));
+		}
 	} else {
 		const buffer = "(x (a b) (c d))";
-		const [configuration, input] = extractConfigurationAndSource(buffer);
+		const [_partial, configuration, input] = extractConfigurationAndSource(buffer);
 		const expression = parseExpression(input, configuration);
 		console.log(printExpression(expression));
 	}
 }
 
-function extractConfigurationAndSource(input: string): [Configuration, string] {
+type Partial = { before: string | null } | null;
+
+function extractConfigurationAndSource(input: string): [Partial, Configuration, string] {
 	const configuration: Configuration = defaultConfiguration();
 
 	if (input.includes("\n---")) {
 		const [cfg, source] = input.split("\n---");
+		let partial: Partial = null;
 
 		for (let line of cfg.split("\n")) {
 			let adjacency = false;
+
+			if (line.startsWith("partial")) {
+				const next = line.slice("partial".length).trim();
+				const before = next.startsWith("upto ") ? next.slice("upto ".length) : null;
+				partial = { before };
+				continue;
+			}
+
+			if (line.endsWith(" (function)")) {
+				const func = line.slice(0, - " (function)".length);
+				if (!configuration.adjacency) throw new Error("Adjacency needed to register functions");
+				configuration.adjacency.functions.push(func);
+				continue;
+			}
+
 			if (line.endsWith(" (adjacent)")) {
 				adjacency = true;
 				line = line.slice(0, - " (adjacent)".length);
-			}
-			if (line.endsWith(" (function)")) {
-				const func = line.slice(0, - " (function)".length);
-				configuration.adjacency.functions.push(func);
-				continue;
 			}
 
 			let name = "", precedence = 1;
@@ -118,8 +145,8 @@ function extractConfigurationAndSource(input: string): [Configuration, string] {
 			}
 		}
 
-		return [configuration, source.trim()];
+		return [partial, configuration, source.trim()];
 	} else {
-		return [configuration, input.trim()];
+		return [null, configuration, input.trim()];
 	}
 }

@@ -13,16 +13,23 @@ fn main() {
 
 	if let Some(path) = std::env::args().nth(1) {
 		let source = std::fs::read_to_string(&path).unwrap();
-		let (configuration, source) = extract_configuration_and_source(&source);
+		let (partial, configuration, source) = extract_configuration_and_source(&source);
 
 		eprintln!("{configuration:?}");
 
-		let allocator = bumpalo::Bump::new();
-		let expression: Expression<&str> =
-			Expression::from_string(&source, &configuration, &allocator);
-
-		let expression = ExpressionRepresentation(&expression);
-		println!("{source}\n -> {expression}");
+		{
+			let allocator = bumpalo::Bump::new();
+			let expression: Expression<&str> = if let Some(before) = partial {
+				let (expression, bytes) =
+					Expression::from_partial_string(&source, &configuration, &allocator, before);
+				println!("parsed {bytes} bytes");
+				expression
+			} else {
+				Expression::from_string(&source, &configuration, &allocator)
+			};
+			let expression = ExpressionRepresentation(&expression);
+			println!("{source}\n -> {expression}");
+		}
 	} else {
 		let configuration = Configuration {
 			binary_operators: vec![
@@ -62,14 +69,24 @@ fn run_interactive() {
 		if line == "end" {
 			let output = String::from_utf8_lossy(&buf);
 
-			let (configuration, source) = extract_configuration_and_source(&output);
+			let (partial, configuration, source) = extract_configuration_and_source(&output);
 
 			// eprintln!("{configuration:?} {source}");
 
 			{
 				let allocator = bumpalo::Bump::new();
-				let expression: Expression<&str> =
-					Expression::from_string(&source, &configuration, &allocator);
+				let expression: Expression<&str> = if let Some(before) = partial {
+					let (expression, bytes) = Expression::from_partial_string(
+						&source,
+						&configuration,
+						&allocator,
+						before,
+					);
+					println!("parsed {bytes} bytes");
+					expression
+				} else {
+					Expression::from_string(&source, &configuration, &allocator)
+				};
 				let expression = ExpressionRepresentation(&expression);
 				println!("{expression}");
 			}
@@ -88,20 +105,29 @@ fn run_interactive() {
 	}
 }
 
-fn extract_configuration_and_source(input: &str) -> (Configuration<'_>, &str) {
+/// first argument is partial and what upto
+fn extract_configuration_and_source(
+	input: &str,
+) -> (Option<Option<&str>>, Configuration<'_>, &str) {
 	if let Some((config, source)) = input.split_once("\n---") {
 		let mut configuration = Configuration::default();
+		let mut partial = None;
 		for line in config.lines().map(str::trim_end) {
-			let (adjacent, rest) = if let Some(rest) = line.strip_suffix(" (adjacent)") {
-				(true, rest)
-			} else {
-				(false, line)
-			};
+			if let Some(after) = line.strip_prefix("partial") {
+				partial = Some(after.trim().strip_prefix("upto "));
+				continue;
+			}
 
 			if let Some(rest) = line.strip_suffix(" (function)") {
 				configuration.adjacency.as_mut().expect("expected function").functions.push(rest);
 				continue;
 			}
+
+			let (adjacent, rest) = if let Some(rest) = line.strip_suffix(" (adjacent)") {
+				(true, rest)
+			} else {
+				(false, line)
+			};
 
 			let (name, rest) = if let Some((name, rest)) = rest.split_once(':')
 				&& name.trim_end().chars().all(is_identifier)
@@ -152,9 +178,9 @@ fn extract_configuration_and_source(input: &str) -> (Configuration<'_>, &str) {
 				sequence => panic!("unknown sequence {sequence:?}"),
 			}
 		}
-		(configuration, source.trim())
+		(partial, configuration, source.trim())
 	} else {
-		(Configuration::default(), input.trim())
+		(None, Configuration::default(), input.trim())
 	}
 }
 
