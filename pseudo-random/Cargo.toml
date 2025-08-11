@@ -1,9 +1,9 @@
 [package]
-name = "psuedorandom"
+name = "pseudorandom"
 version = "0.0.0"
 edition = "2024"
 authors = ["Ben <kaleidawave@gmail.com>"]
-description = "Algorithms for *psuedorandom* values"
+description = "Algorithms for *pseudorandom* values"
 license = "MIT"
 categories = []
 keywords = []
