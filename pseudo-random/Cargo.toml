@@ -1,0 +1,12 @@
+[package]
+name = "psuedorandom"
+version = "0.0.0"
+edition = "2024"
+authors = ["Ben <kaleidawave@gmail.com>"]
+description = "Algorithms for *psuedorandom* values"
+license = "MIT"
+categories = []
+keywords = []
+repository = "https://github.com/kaleidawave/experiments"
+
+[dependencies]
