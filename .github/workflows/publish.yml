@@ -35,7 +35,7 @@ jobs:
       - run: cargo publish --allow-dirty
         working-directory: ${{ matrix.library }}
         env:
-          CARGO_REGISTRY_TOKEN: ${{ env.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           # CARGO_REGISTRY_TOKEN: $ { { steps.auth.outputs.token }}
 
       - name: Push updated Cargo.toml
