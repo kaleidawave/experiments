@@ -9,7 +9,7 @@ jobs:
 
     strategy:
       matrix:
-        library: [pseudo-random]
+        library: [pseudorandom]
 
     runs-on: ubuntu-latest
 
