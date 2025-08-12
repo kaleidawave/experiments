@@ -55,8 +55,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         binary: [
-          pseudo-random~random,
-          pseudo-random~choose,
+          pseudorandom~random,
+          pseudorandom~choose,
         ]
         include:
         - os: windows-latest
