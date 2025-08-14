@@ -138,7 +138,6 @@ pub fn parse_english(on: &str) -> Result<usize, &str> {
             "eighty" => 80,
             "ninety" => 90,
             number => {
-                dbg!(number);
                 return Err(number);
             }
         })

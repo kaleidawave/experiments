@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!(
             "usage: `{BIN_NAME} *number*` or `{BIN_NAME} *number* (--roman | --binary | --hex | --english)`"
         );
-        eprintln!("example `{BIN_NAME} seven`");
+        eprintln!("examples: `{BIN_NAME} seven`, `{BIN_NAME} IX --roman`");
         eprintln!();
         eprintln!("{AUTHOR} - 2025");
         return Ok(());
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "--english" => parse::parse_english(&value).map_err(|_| ()),
         format => {
             return Err(format!(
-                "unknown format {format:?}. expected --roman, --binary, --hex or --english"
+                "unknown format {format}. expected --roman, --binary, --hex or --english"
             )
             .into());
         }
@@ -37,6 +37,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{value}");
         Ok(())
     } else {
-        return Err(format!("could not format {value:?} in format {format:?}").into());
+        return Err(format!("could not format {value} in format {format}").into());
     }
 }

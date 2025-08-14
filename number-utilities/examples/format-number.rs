@@ -8,9 +8,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let value = args.next();
     if let Some("--help") | None = value.as_deref() {
         eprintln!(
-            "usage: `{BIN_NAME} *number* (decinary)` or `{BIN_NAME} *number* (--roman | --binary | --hex | --denary | --english) | --seperator *seperator* (default ` ` if specififed)`"
+            "usage: `{BIN_NAME} *number* (--roman | --binary | --hex | --denary | --english (default --english)) (--seperator *seperator*)`"
         );
-        eprintln!("example `{BIN_NAME} 7`");
+        eprintln!(
+            "examples: `{BIN_NAME} 7`, `{BIN_NAME} 2025 --roman`, `{BIN_NAME} 561232 --denary --seperator`"
+        );
         eprintln!();
         eprintln!("{AUTHOR} - 2025");
         return Ok(());
@@ -35,7 +37,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("--denary") => format::to_denary(value, seperator),
         Some("--english") | None => format::to_english(value),
         Some(format) => {
-            return Err(format!("unknown format {format:?}. expected --roman, --binary, --hex, --denary or --english").into());
+            return Err(format!(
+                "unknown format {format}. expected --roman, --binary, --hex, --denary or --english"
+            )
+            .into());
         }
     };
 
