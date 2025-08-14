@@ -1,6 +1,6 @@
 [package]
 name = "number-utilities"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 authors = ["Ben <kaleidawave@gmail.com>"]
 description = "Number utilities involving formats and statistics"
