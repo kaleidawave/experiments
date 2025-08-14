@@ -5,7 +5,7 @@ use number_utilities::parse::parse_roman_numeral;
 fn upto_mmmcmxcix() {
     for value in 0..4000 {
         let roman_numeral = to_roman_numeral(value);
-        let out_value = parse_roman_numeral(&roman_numeral);
+        let out_value = parse_roman_numeral(&roman_numeral).unwrap();
         assert_eq!(value, out_value);
     }
 }

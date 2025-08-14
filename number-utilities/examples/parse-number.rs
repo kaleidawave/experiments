@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let value = args.next();
     if let Some("--help") | None = value.as_deref() {
         eprintln!(
-            "usage: `{BIN_NAME} *number*` or `{BIN_NAME} *number* --roman | --binary | --hex`"
+            "usage: `{BIN_NAME} *number*` or `{BIN_NAME} *number* (--roman | --binary | --hex | --english)`"
         );
         eprintln!("example `{BIN_NAME} seven`");
         eprintln!();
@@ -19,17 +19,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let value = value.unwrap();
 
     let next = args.next();
-    let value = if let Some("--roman") = next.as_deref() {
-        parse::parse_roman_numeral(&value)
-    } else if let Some("--binary") = next.as_deref() {
-        parse::parse_binary(&value)
-    } else if let Some("--hex") = next.as_deref() {
-        parse::parse_hex(&value)
-    } else {
-        parse::parse_english(&value)
+    let format = next.as_deref().unwrap_or("--english");
+    let result = match format {
+        "--roman" => parse::parse_roman_numeral(&value),
+        "--binary" => parse::parse_binary(&value),
+        "--hex" => parse::parse_hex(&value),
+        "--english" => parse::parse_english(&value).map_err(|_| ()),
+        format => {
+            return Err(format!(
+                "unknown format {format:?}. expected --roman, --binary, --hex or --english"
+            )
+            .into());
+        }
     };
 
-    println!("{value}");
-
-    Ok(())
+    if let Ok(value) = result {
+        println!("{value}");
+        Ok(())
+    } else {
+        return Err(format!("could not format {value:?} in format {format:?}").into());
+    }
 }

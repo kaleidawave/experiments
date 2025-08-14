@@ -31,7 +31,7 @@ fn fuzz_english() {
         let value = (random_value % pow) as usize;
 
         let value_english = to_english(value);
-        let out_value = parse_english(&value_english);
+        let out_value = parse_english(&value_english).unwrap();
 
         assert_eq!(value, out_value, "{value_english} parsed as {out_value}");
     }

@@ -33,7 +33,7 @@ fn fuzz_binary() {
         let value = (random_value % pow) as usize;
 
         let base_format = format::to_binary(value);
-        let out_value = parse::parse_binary(&base_format);
+        let out_value = parse::parse_binary(&base_format).unwrap();
 
         assert_eq!(value, out_value, "{base_format} parsed as {out_value}");
     }
@@ -50,8 +50,8 @@ fn fuzz_decinary() {
         let pow: u32 = 10_u32.pow((random_value.rotate_left(16) % 8) + 1);
         let value = (random_value % pow) as usize;
 
-        let base_format = format::to_base10(value);
-        let out_value = parse::parse_base10(&base_format);
+        let base_format = format::to_denary(value, "");
+        let out_value = parse::parse_denary(&base_format).unwrap();
 
         assert_eq!(value, out_value, "{base_format} parsed as {out_value}");
     }
@@ -66,8 +66,8 @@ fn fuzz_hex() {
         let pow: u32 = 10_u32.pow((random_value.rotate_left(16) % 8) + 1);
         let value = (random_value % pow) as usize;
 
-        let base_format = format::to_hex(value);
-        let out_value = parse::parse_hex(&base_format);
+        let base_format = format::to_hex(value, "");
+        let out_value = parse::parse_hex(&base_format).unwrap();
 
         assert_eq!(value, out_value, "{base_format} parsed as {out_value}");
     }

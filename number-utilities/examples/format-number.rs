@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let value = args.next();
     if let Some("--help") | None = value.as_deref() {
         eprintln!(
-            "usage: `{BIN_NAME} *number* (decinary)` or `{BIN_NAME} *number* --roman | --binary | --hex`"
+            "usage: `{BIN_NAME} *number* (decinary)` or `{BIN_NAME} *number* (--roman | --binary | --hex | --denary | --english) | --seperator *seperator* (default ` ` if specififed)`"
         );
         eprintln!("example `{BIN_NAME} 7`");
         eprintln!();
@@ -19,14 +19,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let value: usize = value.unwrap().parse()?;
 
     let next = args.next();
-    let value = if let Some("--roman") = next.as_deref() {
-        format::to_roman_numeral(value)
-    } else if let Some("--binary") = next.as_deref() {
-        format::to_binary(value)
-    } else if let Some("--hex") = next.as_deref() {
-        format::to_hex(value)
+
+    let s;
+    let seperator = if let Some("--seperator") = args.next().as_deref() {
+        s = args.next();
+        s.as_deref().unwrap_or(" ")
     } else {
-        format::to_english(value)
+        ""
+    };
+
+    let value = match next.as_deref() {
+        Some("--roman") => format::to_roman_numeral(value),
+        Some("--binary") => format::to_binary(value),
+        Some("--hex") => format::to_hex(value, seperator),
+        Some("--denary") => format::to_denary(value, seperator),
+        Some("--english") | None => format::to_english(value),
+        Some(format) => {
+            return Err(format!("unknown format {format:?}. expected --roman, --binary, --hex, --denary or --english").into());
+        }
     };
 
     println!("{value}");
