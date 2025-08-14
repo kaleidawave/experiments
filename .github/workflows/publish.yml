@@ -54,14 +54,13 @@ jobs:
         run: crates-release change-version patch
         working-directory: ${{ matrix.library }}
 
-      # - uses: rust-lang/crates-io-auth-action@v1
-      #   id: auth
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
 
       - run: cargo publish --allow-dirty
         working-directory: ${{ matrix.library }}
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          # CARGO_REGISTRY_TOKEN: $ { { steps.auth.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
       - name: Push updated Cargo.toml
         run: |
@@ -150,5 +149,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Benchmark parse + format to English
-        run: cargo run --release benchmark
+        run: cargo run --example benchmark --release 
         working-directory: ${{ matrix.library }}
