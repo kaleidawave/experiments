@@ -1,13 +1,16 @@
 [package]
 name = "simple-http-requester"
-version = "0.1.0"
+version = "0.0.0"
+authors = ["Ben <kaleidawave@gmail.com>"]
 edition = "2024"
-publish = false
+description = "Minimal and simple HTTP(s) request library"
+license = "MIT"
+categories = ["network-programming"]
+keywords = ["http", "request"]
+repository = "https://github.com/kaleidawave/experiments"
 
 [lib]
-name = "simple_http_requester"
 path = "lib.rs"
 
 [dependencies]
 native-tls = "0.2.14"
-
