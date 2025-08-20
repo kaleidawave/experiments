@@ -1,4 +1,4 @@
-name: Build assets for projects
+name: Build and publish libraries and assets
 
 on:
   push
@@ -45,64 +45,3 @@ jobs:
           git add -u .
           git commit -m "Release: ${{ steps.update-version.outputs.mashrl }}"
           git push origin ${{ steps.checkout.outputs.ref }}
-
-  publish-assets:
-    needs: publish-libraries
-
-    permissions: write-all
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        binary: []
-        include:
-        - os: windows-latest
-          platform-name: x86_64-pc-windows
-          executable-extension: ".exe"
-        - os: ubuntu-latest
-          platform-name: x86_64-unknown-linux
-
-    runs-on: ${{ matrix.os }}
-
-    env:
-      LEVEL: debug
-      GH_RELEASE: assets
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Set variables
-        id: information
-        run: |
-          echo "GITHUB_RUN_DATE=$(TZ="Europe/London" date +"%Y-%m-%d %T")" >> "$GITHUB_OUTPUT"
-          echo "GIT_LAST_COMMIT=$(git log -n 1 --format="%H")" >> "$GITHUB_OUTPUT"
-          IFS='~' read -r binary example <<< '${{ matrix.binary }}'
-          echo "WORKING_DIRECTORY=$binary" >> "$GITHUB_OUTPUT"
-          if [ -n "$example" ]; then
-            echo "BUILD_SPECIFIER=--example $example" >> "$GITHUB_OUTPUT"
-            echo "ASSET_PATH=examples/$example" >> "$GITHUB_OUTPUT"
-          else
-            echo "BUILD_SPECIFIER=" >> "$GITHUB_OUTPUT"
-            echo "ASSET_PATH=$binary" >> "$GITHUB_OUTPUT"
-          fi
-
-        shell: bash
-
-      - name: Build binary
-        working-directory: ${{ steps.information.outputs.WORKING_DIRECTORY }}
-        run: cargo build ${{ steps.information.outputs.BUILD_SPECIFIER }}
-        env:
-          GITHUB_RUN_DATE: ${{ steps.information.outputs.GITHUB_RUN_DATE }}
-          GIT_LAST_COMMIT: ${{ steps.information.outputs.GIT_LAST_COMMIT }}
-        
-      - name: Publish binary
-        working-directory: ${{ steps.information.outputs.WORKING_DIRECTORY }}
-        run: |
-          FROM="./target/$LEVEL/${{ steps.information.outputs.ASSET_PATH }}${{ matrix.executable-extension }}"
-          TO="${{ matrix.binary }}-${{ matrix.platform-name }}${{ matrix.executable-extension }}"
-          gh release upload $GH_RELEASE "$FROM#$TO" --clobber
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
