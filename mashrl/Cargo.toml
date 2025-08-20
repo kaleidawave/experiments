@@ -1,5 +1,5 @@
 [package]
-name = "simple-http-requester"
+name = "mashrl"
 version = "0.0.0"
 authors = ["Ben <kaleidawave@gmail.com>"]
 edition = "2024"

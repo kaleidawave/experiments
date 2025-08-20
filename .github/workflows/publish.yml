@@ -9,7 +9,7 @@ jobs:
 
     strategy:
       matrix:
-        library: [simple-http-requester]
+        library: [mashrl]
 
     runs-on: ubuntu-latest
 
@@ -43,7 +43,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -u .
-          git commit -m "Release: ${{ steps.update-version.outputs.simple-http-requester }}"
+          git commit -m "Release: ${{ steps.update-version.outputs.mashrl }}"
           git push origin ${{ steps.checkout.outputs.ref }}
 
   publish-assets:
