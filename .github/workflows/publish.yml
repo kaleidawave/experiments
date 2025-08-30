@@ -35,7 +35,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        binary: [date-utilites~now]
+        binary: [date-utilities~now]
         include:
         - os: windows-latest
           platform-name: x86_64-pc-windows
@@ -114,18 +114,18 @@ jobs:
         run: crates-release change-version patch
         working-directory: ${{ matrix.library }}
 
-      # - uses: rust-lang/crates-io-auth-action@v1
-      #   id: auth
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
 
       - run: cargo publish --allow-dirty
         working-directory: ${{ matrix.library }}
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
       - name: Push updated Cargo.toml
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "Release: ${{ steps.update-version.outputs.date-utilites }}"
+          git add -u .
+          git commit -m "Release: ${{ steps.update-version.outputs.date-utilities }}"
           git push origin ${{ steps.checkout.outputs.ref }}
