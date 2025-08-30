@@ -11,9 +11,6 @@ jobs:
       matrix:
         project: [date-utilities]
 
-    env:
-      GH_TOKEN: ${{ github.token }}
-
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
@@ -32,8 +29,6 @@ jobs:
 
   publish-assets:
     needs: check
-
-    if: false
 
     permissions: write-all
 
@@ -106,14 +101,10 @@ jobs:
         
     runs-on: ubuntu-latest
 
-    env:
-      GH_TOKEN: ${{ github.token }}
-
     steps:
       - id: checkout
         uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: oven-sh/setup-bun@v2
       - uses: kaleidawave/release-downloader@improvements
         with:
           items: kaleidawave/crates-release-gh-action@assets[crates-release]
