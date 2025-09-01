@@ -52,7 +52,7 @@ pub trait ToJSON {
     fn append(&self, buf: &mut String);
 }
 
-impl<'a> ToJSON for &'a str {
+impl ToJSON for &str {
     fn append(&self, buf: &mut String) {
         buf.push('"');
         buf.push_str(&escape_json_string(self));
@@ -149,7 +149,7 @@ pub fn escape_json_string(on: &str) -> std::borrow::Cow<'_, str> {
             "\\" => "\\",
             "\n" => "n",
             "\t" => "t",
-            _ => unreachable!()
+            _ => unreachable!(),
         };
         start = index + 1;
     }

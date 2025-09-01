@@ -1,0 +1,70 @@
+name: Check, build assets and publish project
+
+on:
+  push
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        project: [json-builder-macro]
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+
+    - name: Check
+      run: cargo check
+      working-directory: ${{ matrix.project }}
+
+    - name: Test
+      run: cargo test
+      working-directory: ${{ matrix.project }}
+
+    - name: Lint
+      continue-on-error: true
+      run: cargo clippy
+      working-directory: ${{ matrix.project }}
+
+  publish-crates:
+    needs: check
+
+    permissions: write-all
+
+    strategy:
+      matrix:
+        library: [json-builder-macro]
+        
+    runs-on: ubuntu-latest
+
+    steps:
+      - id: checkout
+        uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: kaleidawave/release-downloader@improvements
+        with:
+          items: kaleidawave/crates-release-gh-action@assets[crates-release]
+
+      - name: Update version
+        id: update-version
+        run: crates-release change-version patch
+        working-directory: ${{ matrix.library }}
+
+      # - uses: rust-lang/crates-io-auth-action@v1
+      #   id: auth
+
+      - run: cargo publish --allow-dirty
+        working-directory: ${{ matrix.library }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          # CARGO_REGISTRY_TOKEN: $ {{ steps.auth.outputs.token }}
+
+      - name: Push updated Cargo.toml
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -u .
+          git commit -m "Release: ${{ steps.update-version.outputs.json-builder-macro }}"
+          git push origin ${{ steps.checkout.outputs.ref }}
