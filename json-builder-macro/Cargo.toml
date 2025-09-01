@@ -2,7 +2,7 @@
 name = "json-builder-macro"
 description = "A lightweight macro for generating JSON objects"
 authors = ["Ben <kaleidawave@gmail.com>"]
-version = "0.0.0"
+version = "0.0.1"
 edition = "2024"
 license = "MIT"
 categories = ["web-programming"]
