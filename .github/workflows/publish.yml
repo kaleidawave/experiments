@@ -14,6 +14,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
+    - uses: kaleidawave/release-downloader@improvements
+      with:
+        items: kaleidawave/experiments@assets[spectra]
 
     - name: Check
       run: cargo check
