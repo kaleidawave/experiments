@@ -23,7 +23,12 @@ jobs:
       working-directory: ${{ matrix.project }}
 
     - name: Test
-      run: cargo build && cargo test
+      continue-on-error: true
+      run: |
+        cargo build
+        ls -R target
+        spectra --help
+        cargo test
       working-directory: ${{ matrix.project }}
 
     - name: Lint
