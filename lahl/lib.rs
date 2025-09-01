@@ -168,7 +168,7 @@ impl CLI {
                 };
                 Ok((command, arguments))
             } else {
-                return Err(RunError::UnknownCommand(UnknownCommand(first)));
+                Err(RunError::UnknownCommand(UnknownCommand(first)))
             }
         }
     }
