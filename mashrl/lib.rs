@@ -1,7 +1,6 @@
 #![warn(clippy::pedantic)]
 
 use native_tls::{TlsConnector, TlsStream};
-use std::io::{Read, Write};
 use std::net::TcpStream;
 
 #[allow(non_snake_case)]
@@ -151,7 +150,15 @@ pub mod HTTP {
                 "510 Not Extended" => Self::NOT_EXTENDED,
                 "511 Network Authentication Required" => Self::NETWORK_AUTHENTICATION_REQUIRED,
                 item => {
-                    return Err(item);
+                    // Custom status code
+                    if let Some(value) = item
+                        .split_once(' ')
+                        .and_then(|(lhs, _)| lhs.parse::<u16>().ok())
+                    {
+                        Self(value)
+                    } else {
+                        return Err(item);
+                    }
                 }
             })
         }
@@ -160,7 +167,7 @@ pub mod HTTP {
     pub struct Response<'a> {
         pub code: ResponseCode,
         pub headers: Headers<'a>,
-        pub body: std::borrow::Cow<'a, [u8]>,
+        pub body: Encoding<native_tls::TlsStream<std::net::TcpStream>>,
     }
 
     #[derive(Clone, Debug)]
@@ -211,6 +218,123 @@ pub mod HTTP {
             Some((key, value.trim()))
         }
     }
+
+    pub enum Encoding<T> {
+        Raw(std::io::BufReader<T>),
+        Chunked(ChunkedReader<T>),
+    }
+
+    impl<T> std::io::Read for Encoding<T>
+    where
+        T: std::io::Read,
+    {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            match self {
+                Self::Raw(reader) => reader.read(buf),
+                Self::Chunked(reader) => reader.read(buf),
+            }
+        }
+    }
+
+    pub struct ChunkedReader<T> {
+        reader: std::io::BufReader<T>,
+        to_read: usize,
+    }
+
+    impl<T> ChunkedReader<T>
+    where
+        T: std::io::Read,
+    {
+        pub fn new(source: T) -> Self {
+            Self {
+                reader: std::io::BufReader::new(source),
+                to_read: 0,
+            }
+        }
+
+        pub fn new_from_reader(reader: std::io::BufReader<T>) -> Self {
+            Self { reader, to_read: 0 }
+        }
+    }
+
+    impl<T> std::io::Read for ChunkedReader<T>
+    where
+        T: std::io::Read,
+    {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            use std::io::BufRead;
+
+            if self.to_read == 0 {
+                let mut chunk_size_buf = String::new();
+                self.reader.read_line(&mut chunk_size_buf)?;
+
+                let chunk_size_str = chunk_size_buf.trim_end();
+                let hex = u64::from_str_radix(chunk_size_str, 16);
+                let Ok(chunk_size) = hex else {
+                    let message = format!("invalid chunk length {chunk_size_str:?}");
+                    let error = std::io::Error::new(std::io::ErrorKind::InvalidData, message);
+                    return Err(error);
+                };
+
+                // The terminating chunk is a zero-length chunk
+                if chunk_size == 0 {
+                    return Ok(0);
+                }
+
+                let chunk_size = usize::try_from(chunk_size).unwrap_or(usize::MAX);
+
+                self.to_read = chunk_size;
+            }
+
+            let mut reader_over_chunk = self.reader.by_ref().take(self.to_read as u64);
+            let bytes_tranferred = reader_over_chunk.read(buf)?;
+            self.to_read -= bytes_tranferred;
+
+            if self.to_read == 0 {
+                let mut end: [u8; 2] = [0, 0];
+                self.reader.read_exact(&mut end)?;
+
+                #[cfg(debug_assertions)]
+                if &end != b"\r\n" {
+                    let message = "expected '\r\n' at end of chunked frame";
+                    let error = std::io::Error::new(std::io::ErrorKind::InvalidData, message);
+                    return Err(error);
+                }
+            }
+
+            Ok(bytes_tranferred)
+        }
+    }
+}
+
+/// Start the HTTP request, sending [`HTTP::Headers<'_>`]
+fn initiate_stream(
+    root: &str,
+    path: &str,
+    headers: &HTTP::Headers<'_>,
+) -> Result<TlsStream<TcpStream>, Box<dyn std::error::Error>> {
+    use std::io::Write;
+
+    // TODO 443
+    let url = format!("{root}:443");
+    let tcp_stream = TcpStream::connect(url)?;
+    let connector = TlsConnector::new()?;
+    let mut tls_stream = connector.connect(root, tcp_stream)?;
+    let base_request = format!(
+        "GET /{path} HTTP/1.1\r\n\
+	Host: {root}\r\n\
+	Connection: close\r\n\
+	User-Agent: yes\r\n"
+    );
+
+    tls_stream.write_all(base_request.as_bytes())?;
+    if !headers.0.is_empty() {
+        tls_stream.write_all(headers.0.as_bytes())?;
+        tls_stream.write_all(b"\r\n")?;
+    }
+    tls_stream.write_all(b"\r\n")?;
+
+    Ok(tls_stream)
 }
 
 /// FUTURE response based off slices of a single buffer?
@@ -229,8 +353,6 @@ pub fn make_request(
 
     let mut reader = BufReader::new(stream);
 
-    let mut chunked = false;
-
     let code: HTTP::ResponseCode = {
         let mut line = String::new();
         let Ok(_bytes_read) = reader.read_line(&mut line) else {
@@ -248,8 +370,8 @@ pub fn make_request(
     };
 
     let mut headers = String::new();
+    let mut chunked = false;
 
-    // TODO as function
     loop {
         let Ok(bytes_read) = reader.read_line(&mut headers) else {
             return Err("no code".into());
@@ -271,52 +393,10 @@ pub fn make_request(
     let headers = HTTP::Headers::from_string(headers);
 
     let body = if chunked {
-        let mut buf: Vec<u8> = Vec::new();
-        loop {
-            let chunk_size: usize = {
-                let mut chunk_size_buf = String::new();
-                reader.read_line(&mut chunk_size_buf)?;
-                let chunk_size_str = chunk_size_buf.trim_end();
-                match u64::from_str_radix(chunk_size_str, 16) {
-                    Ok(chunk_size) => match usize::try_from(chunk_size) {
-                        Ok(chunk_size) => chunk_size,
-                        Err(_) => {
-                            return Err(format!("chunk size too large {chunk_size:?}").into());
-                        }
-                    },
-                    Err(_) => {
-                        return Err(format!("invalid chunk length {chunk_size_str:?}").into());
-                    }
-                }
-            };
-
-            if chunk_size == 0 {
-                break;
-            }
-
-            let current = buf.len();
-            // FUTURE something better?
-            buf.extend((current..).map(|_| 0).take(chunk_size));
-
-            reader.read_exact(&mut buf[current..])?;
-
-            {
-                let mut new_line: [u8; 2] = [0, 0];
-                reader.read_exact(&mut new_line)?;
-
-                #[cfg(debug_assertions)]
-                if &new_line != b"\r\n" {
-                    return Err("expected '\r\n' at end of chunked frame".into());
-                }
-            }
-        }
-
-        buf
+        HTTP::Encoding::Chunked(HTTP::ChunkedReader::new_from_reader(reader))
     } else {
-        reader.fill_buf()?.to_owned()
+        HTTP::Encoding::Raw(reader)
     };
-
-    let body = std::borrow::Cow::Owned(body);
 
     let response = HTTP::Response {
         code,
@@ -325,31 +405,4 @@ pub fn make_request(
     };
 
     Ok(response)
-}
-
-fn initiate_stream(
-    root: &str,
-    path: &str,
-    headers: &HTTP::Headers<'_>,
-) -> Result<TlsStream<TcpStream>, Box<dyn std::error::Error>> {
-    // TODO 443
-    let url = format!("{root}:443");
-    let tcp_stream = TcpStream::connect(url)?;
-    let connector = TlsConnector::new()?;
-    let mut tls_stream = connector.connect(root, tcp_stream)?;
-    let base_request = format!(
-        "GET /{path} HTTP/1.1\r\n\
-	Host: {root}\r\n\
-	Connection: close\r\n\
-	User-Agent: yes\r\n"
-    );
-
-    tls_stream.write_all(base_request.as_bytes())?;
-    if !headers.0.is_empty() {
-        tls_stream.write_all(headers.0.as_bytes())?;
-        tls_stream.write_all(b"\r\n")?;
-    }
-    tls_stream.write_all(b"\r\n")?;
-
-    Ok(tls_stream)
 }
