@@ -84,6 +84,9 @@ pub mod HTTP {
         pub const NOT_EXTENDED: ResponseCode = ResponseCode(510);
         pub const NETWORK_AUTHENTICATION_REQUIRED: ResponseCode = ResponseCode(511);
 
+        /// # Errors
+        ///
+        /// returns an `Err` if the input is not a known HTTP response code
         pub fn from_line(item: &str) -> Result<Self, &str> {
             Ok(match item {
                 "100 Continue" => Self::CONTINUE,
@@ -169,24 +172,27 @@ pub mod HTTP {
             Headers(std::borrow::Cow::Borrowed(""))
         }
 
-        #[must_use]
-        pub fn from_raw(on: Vec<u8>) -> Result<Headers<'static>, ()> {
-            if let Ok(headers) = String::from_utf8(on) {
-                Ok(Headers::from_string(headers))
-            } else {
-                Err(())
-            }
+        /// # Errors
+        ///
+        /// returns an `Err` if the input is not `utf8`
+        pub fn from_raw(on: Vec<u8>) -> Result<Headers<'static>, std::string::FromUtf8Error> {
+            String::from_utf8(on).map(Headers::from_string)
         }
 
         #[must_use]
         pub fn from_string(on: String) -> Headers<'static> {
             Headers(std::borrow::Cow::Owned(on))
         }
+
+        #[must_use]
+        pub fn iter(&self) -> HeaderIter<'_> {
+            HeaderIter(self.0.lines())
+        }
     }
 
-    impl<'a, 'b> IntoIterator for &'b Headers<'a> {
-        type Item = (&'b str, &'b str);
-        type IntoIter = HeaderIter<'b>;
+    impl<'a> IntoIterator for &'a Headers<'_> {
+        type Item = (&'a str, &'a str);
+        type IntoIter = HeaderIter<'a>;
 
         fn into_iter(self) -> Self::IntoIter {
             HeaderIter(self.0.lines())
@@ -207,95 +213,107 @@ pub mod HTTP {
     }
 }
 
+/// FUTURE response based off slices of a single buffer?
+///
+/// # Errors
+///
+/// returns an error if the returned HTTP response is invalid
 pub fn make_request(
     root: &str,
     path: &str,
     headers: &HTTP::Headers<'_>,
 ) -> Result<HTTP::Response<'static>, Box<dyn std::error::Error>> {
-    let mut stream = initiate_stream(root, path, headers)?;
+    use std::io::{BufRead, BufReader};
 
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response)?;
+    let stream = initiate_stream(root, path, headers)?;
+
+    let mut reader = BufReader::new(stream);
 
     let mut chunked = false;
 
-    // TODO from first line
-    let mut code = None;
+    let code: HTTP::ResponseCode = {
+        let mut line = String::new();
+        let Ok(_bytes_read) = reader.read_line(&mut line) else {
+            return Err("no code".into());
+        };
+        let line = line.trim_end();
+        let code = line
+            .split_once(' ')
+            .and_then(|(_method, item)| HTTP::ResponseCode::from_line(item).ok());
 
-    let mut headers = None;
+        let Some(code) = code else {
+            return Err(format!("invalid response code: {line}").into());
+        };
+        code
+    };
 
-    let mut last = 0;
-    let mut headers_start = 0;
+    let mut headers = String::new();
 
-    for (idx, _) in response.iter().enumerate() {
-        if response[idx..].starts_with(b"\r\n") {
-            let line = str::from_utf8(&response[last..idx]).unwrap();
-            last = idx + b"\r\n".len();
+    // TODO as function
+    loop {
+        let Ok(bytes_read) = reader.read_line(&mut headers) else {
+            return Err("no code".into());
+        };
 
-            if code.is_none() {
-                if let Some((_method, item)) = line.split_once(' ') {
-                    code = Some(HTTP::ResponseCode::from_line(item).unwrap());
-                } else {
-                    panic!("{line}");
-                }
-                headers_start = last;
-            }
+        let last = headers.len() - bytes_read;
+        let line = &headers[last..].trim_end();
 
-            if let Some(transfer_encoding) = line.strip_prefix("Transfer-Encoding: ") {
-                chunked = transfer_encoding == "chunked";
-            }
+        if line.is_empty() {
+            // finished headers
+            break;
+        }
 
-            if line.is_empty() {
-                let h = HTTP::Headers::from_raw(response[headers_start..idx].to_owned()).unwrap();
-                headers = Some(h);
-                break;
-            }
+        if let Some(transfer_encoding) = line.strip_prefix("Transfer-Encoding: ") {
+            chunked = transfer_encoding == "chunked";
         }
     }
 
-    let code = code.unwrap();
-    let headers = headers.unwrap();
-
-    let body = response[last..].to_owned();
+    let headers = HTTP::Headers::from_string(headers);
 
     let body = if chunked {
-        let mark = body
-            .windows(2)
-            .position(|item| item[0] == b'\r' && item[1] == b'\n')
-            .expect("no chunk length");
+        let mut buf: Vec<u8> = Vec::new();
+        loop {
+            let chunk_size: usize = {
+                let mut chunk_size_buf = String::new();
+                reader.read_line(&mut chunk_size_buf)?;
+                let chunk_size_str = chunk_size_buf.trim_end();
+                match u64::from_str_radix(chunk_size_str, 16) {
+                    Ok(chunk_size) => match usize::try_from(chunk_size) {
+                        Ok(chunk_size) => chunk_size,
+                        Err(_) => {
+                            return Err(format!("chunk size too large {chunk_size:?}").into());
+                        }
+                    },
+                    Err(_) => {
+                        return Err(format!("invalid chunk length {chunk_size_str:?}").into());
+                    }
+                }
+            };
 
-        let (chunk_length_str, rest) = body.split_at(mark);
-        let chunk_length_str = str::from_utf8(chunk_length_str).unwrap();
-        let rest = &rest[2..];
-
-        let first_size =
-            u64::from_str_radix(chunk_length_str, 16).expect("invalid chunk length") as usize;
-
-        let mut size = first_size;
-
-        let mut new_body = rest[..size].to_owned();
-        let mut pos = chunk_length_str.len() + b"\r\n".len() + first_size + b"\r\n".len();
-
-        while size > 0 && pos < body.len() {
-            let mark = body[pos..]
-                .windows(2)
-                .position(|item| item[0] == b'\r' && item[1] == b'\n')
-                .expect("no chunk length");
-            let (chunk_length_str, rest) = body.split_at(mark);
-            let chunk_length_str = str::from_utf8(chunk_length_str).unwrap();
-            let rest = &rest[2..];
-            if chunk_length_str.is_empty() {
+            if chunk_size == 0 {
                 break;
             }
 
-            size =
-                u64::from_str_radix(chunk_length_str, 16).expect("invalid chunk length") as usize;
-            pos += chunk_length_str.len() + b"\r\n".len() + size + b"\r\n".len();
-            new_body.extend_from_slice(&rest[..size]);
+            let current = buf.len();
+            // FUTURE something better?
+            buf.extend((current..).map(|_| 0).take(chunk_size));
+
+            reader.read_exact(&mut buf[current..])?;
+
+            {
+                let mut new_line: [u8; 2] = [0, 0];
+                reader.read_exact(&mut new_line)?;
+
+                #[cfg(debug_assertions)]
+                if &new_line != b"\r\n" {
+                    return Err("expected '\r\n' at end of chunked frame".into());
+                }
+            }
         }
-        new_body
+
+        buf
     } else {
-        body
+        reader.fill_buf()?.to_owned()
     };
 
     let body = std::borrow::Cow::Owned(body);
@@ -327,7 +345,10 @@ fn initiate_stream(
     );
 
     tls_stream.write_all(base_request.as_bytes())?;
-    tls_stream.write_all(headers.0.as_bytes())?;
+    if !headers.0.is_empty() {
+        tls_stream.write_all(headers.0.as_bytes())?;
+        tls_stream.write_all(b"\r\n")?;
+    }
     tls_stream.write_all(b"\r\n")?;
 
     Ok(tls_stream)
