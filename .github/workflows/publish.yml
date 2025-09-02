@@ -4,7 +4,32 @@ on:
   push
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        project: [mashrl]
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+
+    - name: Check
+      run: cargo check
+      working-directory: ${{ matrix.project }}
+
+    - name: Test
+      run: cargo test
+      working-directory: ${{ matrix.project }}
+
+    - name: Lint
+      run: cargo clippy
+      working-directory: ${{ matrix.project }}
+
   publish-libraries:
+    needs: check
+
     permissions: write-all
 
     strategy:
@@ -12,9 +37,6 @@ jobs:
         library: [mashrl]
 
     runs-on: ubuntu-latest
-
-    env:
-      GH_TOKEN: ${{ github.token }}
 
     steps:
       - id: checkout
@@ -44,3 +66,5 @@ jobs:
           git add -u .
           git commit -m "Release: ${{ steps.update-version.outputs.mashrl }}"
           git push origin ${{ steps.checkout.outputs.ref }}
+        env:
+          GH_TOKEN: ${{ github.token }}
