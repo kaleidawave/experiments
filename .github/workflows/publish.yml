@@ -38,6 +38,10 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    # TEMP
+    env:
+      GH_TOKEN: ${{ github.token }}
+
     steps:
       - id: checkout
         uses: actions/checkout@v4
