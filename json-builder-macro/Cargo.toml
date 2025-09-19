@@ -2,14 +2,17 @@
 name = "json-builder-macro"
 description = "A lightweight macro for generating JSON objects"
 authors = ["Ben <kaleidawave@gmail.com>"]
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 license = "MIT"
-categories = ["web-programming"]
-keywords = ["json", "builder", "macro"]
+categories = ["web-programming", "value-formatting"]
+keywords = [
+	"json",
+	"builder",
+	"macro"
+]
 repository = "https://github.com/kaleidawave/experiments"
-
-[dependencies]
+documentation = "https://docs.rs/json-builder-macro"
 
 [lib]
 path = "lib.rs"

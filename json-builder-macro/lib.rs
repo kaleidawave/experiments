@@ -1,12 +1,25 @@
+#![doc = include_str!("README.md")]
+
+/// Wraps a JSON structure
 pub struct JSON<'a>(pub &'a dyn ToJSON);
 
+/// Takes input similar to JavaScript object-notation and generates string of JSON.
+///
+/// ```rust
+/// let object = json_builder_macro::json! {
+///     x: 78u32,
+///     y: 72.4f64,
+///     z: "thing"
+/// };
+/// assert_eq!(object, r#"{"x":78,"y":72.4,"z":"thing"}"#);
+/// ```
 #[macro_export]
 macro_rules! json {
     {$( $key:ident : $val:expr ),* $(,)?} => {{
 		let mut buf = String::new();
-		let mut builder = Builder::new(&mut buf);
-		let pairs: &[(&str, JSON)] = &[$(
-			(stringify!($key), JSON(&$val)),
+		let mut builder = $crate::Builder::new(&mut buf);
+		let pairs: &[(&str, $crate::JSON)] = &[$(
+			(stringify!($key), $crate::JSON(&$val)),
 		)*];
 		for (key, value) in pairs {
 			builder.add(key, value);
@@ -16,6 +29,7 @@ macro_rules! json {
 	}};
 }
 
+/// For *building up a JSON* object
 pub struct Builder<'a> {
     started: bool,
     buf: &'a mut String,
@@ -47,7 +61,9 @@ impl<'a> Builder<'a> {
     }
 }
 
-// TODO depth
+/// Represents a JSON object that can be serialized to JSON
+///
+/// TODO depth for pretty
 pub trait ToJSON {
     fn as_json_string(&self) -> String {
         let mut buf = String::new();
@@ -165,6 +181,7 @@ impl ToJSON for &'_ JSON<'_> {
     }
 }
 
+/// Escapes string content to be valid JSON
 pub fn escape_json_string(on: &str) -> std::borrow::Cow<'_, str> {
     let mut result = std::borrow::Cow::Borrowed("");
     let mut start = 0;
