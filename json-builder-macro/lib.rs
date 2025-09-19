@@ -38,7 +38,7 @@ impl<'a> Builder<'a> {
         // TODO escape
         self.buf.push_str(key);
         self.buf.push_str("\":");
-        ToJSON::append(&value, self.buf);
+        ToJSON::append_as_json_string(&value, self.buf);
         self.started = true;
     }
 
@@ -49,11 +49,17 @@ impl<'a> Builder<'a> {
 
 // TODO depth
 pub trait ToJSON {
-    fn append(&self, buf: &mut String);
+    fn as_json_string(&self) -> String {
+        let mut buf = String::new();
+        ToJSON::append_as_json_string(self, &mut buf);
+        buf
+    }
+
+    fn append_as_json_string(&self, buf: &mut String);
 }
 
 impl ToJSON for &str {
-    fn append(&self, buf: &mut String) {
+    fn append_as_json_string(&self, buf: &mut String) {
         buf.push('"');
         buf.push_str(&escape_json_string(self));
         buf.push('"')
@@ -61,32 +67,54 @@ impl ToJSON for &str {
 }
 
 impl ToJSON for String {
-    fn append(&self, buf: &mut String) {
-        ToJSON::append(&self.as_str(), buf)
+    fn append_as_json_string(&self, buf: &mut String) {
+        ToJSON::append_as_json_string(&self.as_str(), buf)
     }
 }
 
 impl<T: ToJSON> ToJSON for &[T] {
-    fn append(&self, buf: &mut String) {
+    fn append_as_json_string(&self, buf: &mut String) {
         buf.push('[');
         for (idx, item) in self.iter().enumerate() {
             if idx > 0 {
                 buf.push(',')
             }
-            ToJSON::append(item, buf)
+            ToJSON::append_as_json_string(item, buf)
         }
         buf.push(']');
     }
 }
 
 impl<T: ToJSON> ToJSON for Vec<T> {
-    fn append(&self, buf: &mut String) {
-        ToJSON::append(&self.as_slice(), buf)
+    fn append_as_json_string(&self, buf: &mut String) {
+        ToJSON::append_as_json_string(&self.as_slice(), buf)
+    }
+}
+
+impl<T1: ToJSON, T2: ToJSON> ToJSON for (T1, T2) {
+    fn append_as_json_string(&self, buf: &mut String) {
+        buf.push('[');
+        ToJSON::append_as_json_string(&self.0, buf);
+        buf.push(',');
+        ToJSON::append_as_json_string(&self.1, buf);
+        buf.push(']');
+    }
+}
+
+impl<T1: ToJSON, T2: ToJSON, T3: ToJSON> ToJSON for (T1, T2, T3) {
+    fn append_as_json_string(&self, buf: &mut String) {
+        buf.push('[');
+        ToJSON::append_as_json_string(&self.0, buf);
+        buf.push(',');
+        ToJSON::append_as_json_string(&self.1, buf);
+        buf.push(',');
+        ToJSON::append_as_json_string(&self.2, buf);
+        buf.push(']');
     }
 }
 
 impl<K: AsRef<str>, V: ToJSON> ToJSON for std::collections::HashMap<K, V> {
-    fn append(&self, buf: &mut String) {
+    fn append_as_json_string(&self, buf: &mut String) {
         buf.push('{');
         for (idx, (key, value)) in self.iter().enumerate() {
             if idx > 0 {
@@ -95,14 +123,14 @@ impl<K: AsRef<str>, V: ToJSON> ToJSON for std::collections::HashMap<K, V> {
             buf.push('"');
             buf.push_str(&escape_json_string(key.as_ref()));
             buf.push_str("\":");
-            ToJSON::append(value, buf);
+            ToJSON::append_as_json_string(value, buf);
         }
         buf.push('}');
     }
 }
 
 impl ToJSON for bool {
-    fn append(&self, buf: &mut String) {
+    fn append_as_json_string(&self, buf: &mut String) {
         buf.push_str(match self {
             true => "true",
             false => "false",
@@ -114,7 +142,7 @@ macro_rules! create_json_from_to_string_implementation {
     ($($T:ty),*) => {
         $(
             impl ToJSON for $T {
-                fn append(&self, buf: &mut String) {
+                fn append_as_json_string(&self, buf: &mut String) {
                     buf.push_str(&self.to_string())
                 }
             }
@@ -126,14 +154,14 @@ macro_rules! create_json_from_to_string_implementation {
 create_json_from_to_string_implementation![u8, u16, u32, u64, i8, i16, i32, i64, f32, f64];
 
 impl ToJSON for JSON<'_> {
-    fn append(&self, buf: &mut String) {
-        self.0.append(buf)
+    fn append_as_json_string(&self, buf: &mut String) {
+        self.0.append_as_json_string(buf)
     }
 }
 
 impl ToJSON for &'_ JSON<'_> {
-    fn append(&self, buf: &mut String) {
-        self.0.append(buf)
+    fn append_as_json_string(&self, buf: &mut String) {
+        self.0.append_as_json_string(buf)
     }
 }
 

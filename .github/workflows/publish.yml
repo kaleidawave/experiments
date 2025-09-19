@@ -29,42 +29,39 @@ jobs:
       working-directory: ${{ matrix.project }}
 
   publish-crates:
-    needs: check
-
-    permissions: write-all
-
-    strategy:
-      matrix:
-        library: [json-builder-macro]
-        
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
     steps:
-      - id: checkout
-        uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: kaleidawave/release-downloader@improvements
-        with:
-          items: kaleidawave/crates-release-gh-action@assets[crates-release]
+    - id: checkout
+      uses: actions/checkout@v4
 
-      - name: Update version
-        id: update-version
-        run: crates-release change-version patch
-        working-directory: ${{ matrix.library }}
+    - id: auth
+      uses: rust-lang/crates-io-auth-action@v1
 
-      # - uses: rust-lang/crates-io-auth-action@v1
-      #   id: auth
+    - id: release
+      name: Crates publish
+      uses: kaleidawave/crates-release-gh-action@improvements
+      with:
+        # TODO specify version $ {{  github.event.inputs.version }}
+        version: patch 
+        crates-token: ${{ steps.auth.outputs.token }}
 
-      - run: cargo publish --allow-dirty
-        working-directory: ${{ matrix.library }}
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          # CARGO_REGISTRY_TOKEN: $ {{ steps.auth.outputs.token }}
+    - name: Push updated Cargo.toml
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git commit -m "Release: ${{ steps.release.outputs.new-version }}"
+        git push origin ${{ steps.checkout.outputs.ref }}
 
-      - name: Push updated Cargo.toml
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -u .
-          git commit -m "Release: ${{ steps.update-version.outputs.json-builder-macro }}"
-          git push origin ${{ steps.checkout.outputs.ref }}
+        echo '${{ steps.release.outputs.new-versions-description }}'
+
+        # git tag "release/${{ steps.release.outputs.new-version }}"
+        # git push --tags origin ${{ steps.checkout.outputs.ref }}
+
+    - name: Discord
+      uses: rjstone/discord-webhook-notify@main
+      with:
+        severity: info
+        text: "Released version ${{ steps.release.outputs.new-versions-description }}"
+        webhookUrl: ${{ secrets.DISCORD_WEBHOOK_ENDPOINT }}
