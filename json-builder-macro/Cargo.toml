@@ -1,0 +1,18 @@
+[package]
+name = "json-builder-macro"
+description = "A lightweight macro for generating JSON objects"
+authors = ["Ben <kaleidawave@gmail.com>"]
+version = "0.0.3"
+edition = "2024"
+license = "MIT"
+categories = ["web-programming", "value-formatting"]
+keywords = [
+	"json",
+	"builder",
+	"macro"
+]
+repository = "https://github.com/kaleidawave/experiments"
+documentation = "https://docs.rs/json-builder-macro"
+
+[lib]
+path = "lib.rs"
