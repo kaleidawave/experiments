@@ -49,6 +49,7 @@ jobs:
         # TODO specify version $ {{  github.event.inputs.version }}
         version: patch 
         crates-token: ${{ steps.auth.outputs.token }}
+        working-directory: json-builder-macro
 
     - name: Push updated Cargo.toml
       run: |
