@@ -1,0 +1,11 @@
+[package]
+name = "git-utilities"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+git2 = { version = "0.20.2", default-features = false }
