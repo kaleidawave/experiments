@@ -52,6 +52,7 @@ jobs:
       with:
         version: patch # $ {{ github.event.inputs.version }}
         crates-token: ${{ steps.auth.outputs.token }}
+        working-directory: ${{ matrix.library }}
 
     - name: Push updated Cargo.toml
       run: |

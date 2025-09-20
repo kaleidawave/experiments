@@ -34,5 +34,7 @@ To catch these errors you can run `CLI::lint` as a test
 - Lifetime on `CLI` (rather than `'static`)
 - More checking in this library
 - `struct` + derive-macro API with `FromString` logic
-- shorthand named parameter named
-- aliases map (and replace `default`)
+- Shorthand named parameter
+- Aliases map (and replace `default`)
+- Auto-completion generation for shells (Powershell, Bash, Fish etc)
+- JavaScript library that mirrors Rust API
