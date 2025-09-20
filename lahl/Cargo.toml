@@ -12,4 +12,6 @@ repository = "https://github.com/kaleidawave/experiments"
 [lib]
 path = "lib.rs"
 
-[dependencies]
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
