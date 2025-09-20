@@ -2,7 +2,7 @@
 name = "lahl"
 description = "lightweight argument handling library"
 authors = ["Ben <kaleidawave@gmail.com>"]
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 license = "MIT"
 categories = ["command-line-interface"]
