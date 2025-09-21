@@ -1,0 +1,17 @@
+[package]
+name = "lahl"
+description = "lightweight argument handling library"
+authors = ["Ben <kaleidawave@gmail.com>"]
+version = "0.0.3"
+edition = "2024"
+license = "MIT"
+categories = ["command-line-interface"]
+keywords = ["argument", "parser", "lightweight"]
+repository = "https://github.com/kaleidawave/experiments"
+
+[lib]
+path = "lib.rs"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
