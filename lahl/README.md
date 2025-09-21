@@ -35,6 +35,6 @@ To catch these errors you can run `CLI::lint` as a test
 - More checking in this library
 - `struct` + derive-macro API with `FromString` logic
 - Shorthand named parameter
-- Aliases map (and replace `default`)
 - Auto-completion generation for shells (Powershell, Bash, Fish etc)
 - JavaScript library that mirrors Rust API
+- Replace `HashSet` in unique lookup?
