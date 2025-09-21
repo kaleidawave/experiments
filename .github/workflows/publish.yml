@@ -9,7 +9,12 @@ jobs:
 
     strategy:
       matrix:
-        library: [specification-tool]
+        library: [spectra]
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.library }}
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -17,7 +22,6 @@ jobs:
 
       - name: Run check
         run: cargo check
-        working-directory: ${{ matrix.library }}
 
       # test setup
       - uses: oven-sh/setup-bun@v2
@@ -27,7 +31,6 @@ jobs:
 
       - name: Run test
         run: cargo test
-        working-directory: ${{ matrix.library }}
 
   publish-assets:
     permissions: write-all
@@ -36,20 +39,19 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        binary: [specification-tool]
+        binary: [spectra]
         include:
         - os: windows-latest
           platform-name: x86_64-pc-windows
           executable-extension: ".exe"
         - os: ubuntu-latest
           platform-name: x86_64-unknown-linux
-        - binary: specification-tool
-          name: spectra
 
     runs-on: ${{ matrix.os }}
 
     env:
-      LEVEL: debug
+      PROFILE: dev
+      OUT: target/debug
       GH_RELEASE: assets
 
     steps:
@@ -61,18 +63,34 @@ jobs:
         run: |
           echo "GITHUB_RUN_DATE=$(TZ="Europe/London" date +"%Y-%m-%d %T")" >> "$GITHUB_OUTPUT"
           echo "GIT_LAST_COMMIT=$(git log -n 1 --format="%H")" >> "$GITHUB_OUTPUT"
+
+          IFS='~' read -r binary example <<< '${{ matrix.binary }}'
+          echo "WORKING_DIRECTORY=$binary" >> "$GITHUB_OUTPUT"
+          if [ -n "$example" ]; then
+            echo "BUILD_SPECIFIER=--example $example" >> "$GITHUB_OUTPUT"
+            echo "ASSET_PATH=${{ env.OUT }}/examples/$example" >> "$GITHUB_OUTPUT"
+            echo "ASSET_NAME=$example" >> "$GITHUB_OUTPUT"
+          else
+            echo "BUILD_SPECIFIER=" >> "$GITHUB_OUTPUT"
+            echo "ASSET_PATH=${{ env.OUT }}/$binary" >> "$GITHUB_OUTPUT"
+            echo "ASSET_NAME=$binary" >> "$GITHUB_OUTPUT"
+          fi
+
         shell: bash
 
-      - name: Build ${{ matrix.name }} binary
-        working-directory: ${{ matrix.binary }}
-        run: cargo build
+      - name: Build binary
+        working-directory: ${{ steps.information.outputs.WORKING_DIRECTORY }}
+        run: cargo build ${{ steps.information.outputs.BUILD_SPECIFIER }} --profile ${{ env.PROFILE }}
         env:
           GITHUB_RUN_DATE: ${{ steps.information.outputs.GITHUB_RUN_DATE }}
           GIT_LAST_COMMIT: ${{ steps.information.outputs.GIT_LAST_COMMIT }}
-        
-      - name: Publish ${{ matrix.name }} binary
-        working-directory: ${{ matrix.binary }}
-        run: gh release upload $GH_RELEASE ./target/$LEVEL/${{ matrix.name }}${{ matrix.executable-extension }}#${{ matrix.name }}-${{ matrix.platform-name }}${{ matrix.executable-extension }} --clobber
+
+      - name: Publish binary
+        working-directory: ${{ steps.information.outputs.WORKING_DIRECTORY }}
+        run: |
+          FROM="./${{ steps.information.outputs.ASSET_PATH }}${{ matrix.executable-extension }}"
+          TO="${{ matrix.binary }}-${{ matrix.platform-name }}${{ matrix.executable-extension }}"
+          gh release upload $GH_RELEASE "$FROM#$TO" --clobber
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -81,12 +99,12 @@ jobs:
     permissions: write-all
     needs: check
 
-    # Needs `simple-markdown-parser` update
+    # Needs `simple-markdown-parser` release
     if: false
 
     strategy:
       matrix:
-        library: [specification-tool]
+        library: [spectra]
 
     runs-on: ubuntu-latest
 
@@ -112,6 +130,6 @@ jobs:
         run: |
           git status
           echo "::debug::${{ steps.checkout.outputs.ref }}"
-          git add .
+          git add -u
           git commit -m "Release: ${{ steps.release.outputs.new-versions-description }}"
           # git push --tags origin ${{ steps.checkout.outputs.ref }}
