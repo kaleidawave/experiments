@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::io;
 use std::path::Path;
 
@@ -109,13 +110,11 @@ pub mod commands {
             let stdout_handle = thread::spawn(move || {
                 for line in stdout.lines().map_while(Result::ok) {
                     // TODO `expect` here
-                    let _ = sender_stdout
-                        .send(ProcessNotification::Message(Channel::Stdout, line));
+                    let _ = sender_stdout.send(ProcessNotification::Message(Channel::Stdout, line));
                 }
 
                 // TODO `expect` here
-                let _ = sender_stdout
-                    .send(ProcessNotification::Completed);
+                let _ = sender_stdout.send(ProcessNotification::Completed);
             });
 
             // Thread to read `stderr`
@@ -233,4 +232,89 @@ pub fn run_in_alternative_display<T: Sized>(cb: impl FnOnce() -> T) -> T {
     execute!(std::io::stdout(), LeaveAlternateScreen).unwrap();
 
     result
+}
+
+pub struct ArgumentIter<'a> {
+    on: &'a str,
+    last: usize,
+}
+
+impl<'a> ArgumentIter<'a> {
+    #[must_use]
+    pub fn new(on: &'a str) -> Self {
+        // Trim?
+        Self { on, last: 0 }
+    }
+}
+
+impl<'a> Iterator for ArgumentIter<'a> {
+    type Item = Cow<'a, str>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let start = self.last;
+        if let Some((idx, matched)) = self.on[self.last..].match_indices(&[' ', '\'', '"']).next() {
+            match matched {
+                " " => {
+                    let end = self.last + idx;
+                    self.last += idx + matched.len();
+                    Some(Cow::Borrowed(self.on[start..end].trim()))
+                }
+                "\"" | "\'" => {
+                    let rest = &self.on[self.last..][1..];
+                    let (idx2, _) = rest
+                        .match_indices(matched)
+                        .find(|(idx, _)| !rest[..*idx].ends_with('\\'))
+                        .expect("no end to quoted item");
+
+                    self.last += idx + idx2 + 2;
+                    if let Some(rest) = self.on.get(self.last..) {
+                        self.last += rest.len() - rest.trim_start().len();
+                    }
+                    let content = &rest[..idx2];
+                    if content.contains('\\') {
+                        Some(Cow::Owned(content.replace('\\', "")))
+                    } else {
+                        Some(Cow::Borrowed(content))
+                    }
+                }
+                item => unreachable!("{item}"),
+            }
+        } else if start < self.on.len() {
+            self.last = self.on.len();
+            Some(Cow::Borrowed(&self.on[start..]))
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arguments() {
+        let on = "this is a test! 'with' \"things in quotes\" see";
+        assert_eq!(
+            ArgumentIter::new(on).collect::<Vec<_>>(),
+            vec![
+                "this",
+                "is",
+                "a",
+                "test!",
+                "with",
+                "things in quotes",
+                "see"
+            ]
+        );
+    }
+
+    #[test]
+    fn escaping() {
+        let on = "testing 'escaping \\'' \"with \\\" quote\"";
+        assert_eq!(
+            ArgumentIter::new(on).collect::<Vec<_>>(),
+            vec!["testing", "escaping '", "with \" quote"]
+        );
+    }
 }

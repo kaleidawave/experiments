@@ -25,11 +25,13 @@ pub struct Command {
 
 impl Command {
     /// # Panics
+    ///
     /// panics if `data` is empty
-    pub fn new(data: &str) -> Self {
-        let mut iter = data.split(' ');
+    #[must_use]
+    pub fn new(argument: &str) -> Self {
+        let mut iter = crate::utilities::ArgumentIter::new(argument);
         let name = iter.next().expect("no command name");
-        let mut arguments: Vec<String> = iter.map(ToOwned::to_owned).collect();
+        let mut arguments: Vec<String> = iter.map(std::borrow::Cow::into_owned).collect();
 
         let mut stdin_stdout_communication = false;
         let mut ignore_exit_code = false;
@@ -64,8 +66,9 @@ impl Command {
             timeout = Some(time::Duration::from_millis(time));
         }
 
+        let name = name.into_owned();
         let mut this = Self {
-            name: name.to_owned(),
+            name,
             arguments,
             ignore_exit_code,
             currently_running: None,
@@ -96,7 +99,7 @@ impl Command {
         }
 
         // TODO duration temp
-        let (prelude, res) = process.read_timeout(time::Duration::from_secs(10), Some("start"));
+        let (prelude, result) = process.read_timeout(time::Duration::from_secs(10), Some("start"));
 
         // Any prelude messages
         for (channel, line) in prelude {
@@ -104,7 +107,7 @@ impl Command {
         }
 
         assert_eq!(
-            res.unwrap(),
+            result.unwrap(),
             commands::ProcessStatus::Continuing,
             "process exected or timed-out"
         );
@@ -114,7 +117,7 @@ impl Command {
 }
 
 impl Runner for Command {
-    fn run(&mut self, test: &Test) -> Result<String, String> {
+    fn run(&mut self, test: &Test) -> Result<(String, String), String> {
         if let Some(ref mut running) = self.currently_running {
             for line in test.case.as_str().lines() {
                 // eprintln!("TEMP writing {line:?}");
@@ -150,37 +153,45 @@ impl Runner for Command {
                 let _ = self.currently_running.insert(running);
             }
 
-
-            let buf = {
+            let (stdout, stderr) = {
                 use std::fmt::Write;
 
-                let mut buf = String::new();
-    
+                let mut stdout = String::new();
+                let mut stderr = String::new();
+
                 if timed_out {
-                    writeln!(&mut buf, "PROCESS TIMED OUT").unwrap();
+                    writeln!(&mut stderr, "PROCESS TIMED OUT").unwrap();
                 }
 
                 for (channel, message) in messages {
                     match channel {
                         commands::Channel::Stdout => {
-                            writeln!(&mut buf, "{message}").unwrap();
+                            writeln!(&mut stdout, "{message}").unwrap();
                         }
                         commands::Channel::Stderr => {
+                            // TODO Hmm
                             if test.merge_stderr {
-                                writeln!(&mut buf, "[{message}]").unwrap();
+                                writeln!(&mut stdout, "[{message}]").unwrap();
                             } else if command_no_longer_running {
-                                writeln!(&mut buf, "* {message}").unwrap();
+                                writeln!(&mut stdout, "* {message}").unwrap();
+                            } else {
+                                writeln!(&mut stderr, "{message}").unwrap();
                             }
                         }
                     }
                 }
-    
-                buf.truncate(buf.trim_end().len());
 
-                buf
+                stdout.truncate(stdout.trim_end().len());
+                stderr.truncate(stderr.trim_end().len());
+
+                (stdout, stderr)
             };
 
-            if command_no_longer_running { Err(buf) } else { Ok(buf) }
+            if command_no_longer_running {
+                Err(stderr)
+            } else {
+                Ok((stdout, stderr))
+            }
         } else {
             let arguments = self.arguments.iter().map(|argument| {
                 let argument = argument.as_str();
@@ -215,23 +226,28 @@ impl Runner for Command {
                         );
                     }
 
-                    let mut buf = String::new();
+                    let mut stdout = String::new();
+                    let mut stderr = String::new();
+
                     for (channel, message) in messages {
-                        // let append = test.merge_stderr
-                        let append = channel == commands::Channel::Stdout;
-                        if append {
-                            buf.push_str(&message);
-                            buf.push('\n');
+                        use std::fmt::Write;
+
+                        match channel {
+                            commands::Channel::Stdout => {
+                                writeln!(&mut stdout, "{message}").unwrap();
+                            }
+                            commands::Channel::Stderr => {
+                                writeln!(&mut stderr, "{message}").unwrap();
+                            }
                         }
                     }
 
-                    buf.truncate(buf.trim_end().len());
+                    stdout.truncate(stdout.trim_end().len());
+                    stderr.truncate(stderr.trim_end().len());
 
-                    Ok(buf)
+                    Ok((stdout, stderr))
                 }
-                Err(err) => {
-                    Err(format!("Command failed with {err:?}\n{messages:?}"))
-                }
+                Err(err) => Err(format!("Command failed with {err:?}\n{messages:?}")),
             }
         }
     }
@@ -306,16 +322,16 @@ impl Commands {
 }
 
 impl Runner for Commands {
-    fn run(&mut self, test: &Test) -> Result<String, String> {
+    fn run(&mut self, test: &Test) -> Result<(String, String), String> {
         let mut buf = String::new();
         for (name, command) in &mut self.commands {
-            let out = command.run(test)?;
+            let (out, _debug) = command.run(test)?;
             buf.push_str(name);
             buf.push_str(":\n");
             buf.push_str(&out);
             buf.push('\n');
         }
-        Ok(buf)
+        Ok((buf, String::new()))
     }
 
     fn close(self) {

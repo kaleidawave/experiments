@@ -16,6 +16,9 @@ simple-markdown-parser = { git = "https://github.com/kaleidawave/simple-markdown
 pretty_assertions = "1.4.1"
 crossterm = "0.29.0"
 colored = "3.0.0"
+lahl = "0.0.3"
+simple-yaml-parser = "0.0.1"
+json-builder-macro = "0.0.3"
 
 [lints.clippy]
 pedantic = "warn"
