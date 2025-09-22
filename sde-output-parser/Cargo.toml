@@ -12,3 +12,5 @@ name = "sde-output-parser"
 path = "main.rs"
 
 [dependencies]
+json-builder-macro = "0.0.3"
+lahl = "0.0.3"

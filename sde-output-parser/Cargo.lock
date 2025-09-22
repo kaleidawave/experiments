@@ -3,5 +3,21 @@
 version = 4
 
 [[package]]
+name = "json-builder-macro"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9aa0a35ce526cad28e8487490a9852c420ab24f130587c96a5cb6ba64d9e038d"
+
+[[package]]
+name = "lahl"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e4a8c20e6464272551944241003a7a471449926cb9af9dc9b17fc80ff4bbe0d"
+
+[[package]]
 name = "sde-output-parser"
 version = "0.0.0"
+dependencies = [
+ "json-builder-macro",
+ "lahl",
+]

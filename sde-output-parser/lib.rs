@@ -2,16 +2,16 @@ use std::io::BufRead;
 
 #[derive(Default, Debug)]
 pub struct Count {
+    pub total: u32,
     pub mem_read: u32,
     pub mem_write: u32,
     pub stack_read: u32,
     pub stack_write: u32,
-    pub total: u32,
     pub call: u32,
 }
 
 #[allow(clippy::collapsible_else_if)]
-pub fn parse(on: impl BufRead) -> Vec<(String, Count)> {
+pub fn parse(on: impl BufRead, skip_rust_internals: bool) -> Vec<(String, Count)> {
     let mut section: String = String::default();
     let mut count = Count::default();
 
@@ -39,15 +39,20 @@ pub fn parse(on: impl BufRead) -> Vec<(String, Count)> {
         };
 
         if let Some(new_name) = name {
-            let skip = section.is_empty()
-                || section.contains("alloc")
-                || section.contains("std")
-                || section.contains("core");
+            let skip = if skip_rust_internals {
+                section.contains("alloc") || section.contains("std") || section.contains("core")
+            } else {
+                false
+            };
+            let skip = skip || section.is_empty();
+
             let count = std::mem::take(&mut count);
             if !skip {
                 parts.push((section, count));
             }
-            section = new_name.to_owned();
+            // TODO more efficient?
+            let name = new_name.replace("$LT$", "<").replace("$GT$", ">");
+            section = name;
         } else {
             // values
             if let Some(rest) = line.strip_prefix("*total") {
