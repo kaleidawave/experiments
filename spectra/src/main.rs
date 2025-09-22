@@ -116,22 +116,22 @@ fn run() -> Result<(), ExitCode> {
                         command = argument.value;
                     }
                     // skip and including options
-                    name @ ("--only" | "--skip" | "--only-cs" | "--skip-cs") => {
+                    name @ ("only" | "skip" | "only-cs" | "skip-cs") => {
                         let matcher = argument.value.unwrap();
                         let filter = filter::StringMatch {
                             case_sensitive: name.ends_with("-cs"),
-                            positive: name.starts_with("--only"),
+                            positive: name.starts_with("only"),
                             matcher: matcher.split(',').map(ToOwned::to_owned).collect(),
                         };
                         run_configuration.filter = Some(Box::new(filter));
                     }
                     // run configuration
-                    "--interactive" => run_configuration.interactive = true,
-                    "--dry-run" => run_configuration.dry_run = true,
-                    "--lists-as-expected" => run_configuration.lists_to_code_block = true,
+                    "interactive" => run_configuration.interactive = true,
+                    "dry-run" => run_configuration.dry_run = true,
+                    "lists-as-expected" => run_configuration.lists_to_code_block = true,
                     // // command configuration
-                    // "--ignore-exit-code" => command_configuration.ignore_exit_code = true,
-                    // "--stdin-stdout-communication" => command_configuration.stdin_stdout_communication = true,
+                    // "ignore-exit-code" => command_configuration.ignore_exit_code = true,
+                    // "stdin-stdout-communication" => command_configuration.stdin_stdout_communication = true,
                     argument => unreachable!("{argument:?}"),
                 }
             }
@@ -164,22 +164,22 @@ fn run() -> Result<(), ExitCode> {
                         command_pattern = argument.value;
                     }
                     // skip and including options
-                    name @ ("--only" | "--skip" | "--only-cs" | "--skip-cs") => {
+                    name @ ("only" | "skip" | "only-cs" | "skip-cs") => {
                         let matcher = argument.value.unwrap();
                         let filter = filter::StringMatch {
                             case_sensitive: name.ends_with("-cs"),
-                            positive: name.starts_with("--only"),
+                            positive: name.starts_with("only"),
                             matcher: matcher.split(',').map(ToOwned::to_owned).collect(),
                         };
                         run_configuration.filter = Some(Box::new(filter));
                     }
                     // run configuration
-                    "--interactive" => run_configuration.interactive = true,
-                    "--dry-run" => run_configuration.dry_run = true,
-                    "--lists-as-expected" => run_configuration.lists_to_code_block = true,
+                    "interactive" => run_configuration.interactive = true,
+                    "dry-run" => run_configuration.dry_run = true,
+                    "lists-as-expected" => run_configuration.lists_to_code_block = true,
                     // // command configuration
-                    // "--ignore-exit-code" => command_configuration.ignore_exit_code = true,
-                    // "--stdin-stdout-communication" => command_configuration.stdin_stdout_communication = true,
+                    // "ignore-exit-code" => command_configuration.ignore_exit_code = true,
+                    // "stdin-stdout-communication" => command_configuration.stdin_stdout_communication = true,
                     argument => unreachable!("{argument:?}"),
                 }
             }
