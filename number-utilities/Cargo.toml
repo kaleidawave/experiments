@@ -1,0 +1,12 @@
+[package]
+name = "number-utilities"
+version = "0.0.2"
+edition = "2024"
+authors = ["Ben <kaleidawave@gmail.com>"]
+description = "Number utilities involving formats and statistics"
+license = "MIT"
+categories = []
+keywords = []
+repository = "https://github.com/kaleidawave/experiments"
+
+[dependencies]
