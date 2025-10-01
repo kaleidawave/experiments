@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Text editor</title>
+	<link rel="stylesheet" href="/web-text-editor/styles.css">
+	<script type="module" src="/web-text-editor/script.mjs"></script>
+</head>
+
+<body>
+	<div id="controls" class="bar">
+		<button id="load">Load</button>
+		<button id="save">Save</button>
+		<button id="clear">Clear</button>
+		<button id="copy">Copy</button>
+		<button id="paste">Paste</button>
+	</div>
+	<div id="status" class="bar">
+		<span>editing</span>
+		<span id="currently-editing">scratch</span>
+		<span id="dirty" hidden>*</span>
+	</div>
+	<textarea name="editor" id="editor"></textarea>
+	<div id="banner" hidden>saved</div>
+</body>
+
+</html>
