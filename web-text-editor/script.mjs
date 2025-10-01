@@ -33,28 +33,36 @@ async function writeBanner(text) {
 	banner.setAttribute("hidden", "");
 }
 
+async function saveFile() {
+	const file = await showSaveFilePicker({ ...pickerOptions, suggestedName: fileName });
+	document.querySelector("#currently-editing").innerText = (fileName = file.name);
+	const writableStream = await file.createWritable();
+	await writableStream.write(editor.value);
+	await writableStream.close();
+	markClean();
+	writeBanner(`saved ${fileName}`)
+}
+
+async function openFile() {
+	const [result] = await showOpenFilePicker(pickerOptions);
+	const file = await result.getFile();
+	document.querySelector("#currently-editing").innerText = (fileName = file.name);
+	const content = await file.text();
+	editor.value = content;
+	markClean();
+	editor.addEventListener("input", (_ev) => markDirty(), { once: true });
+	writeBanner(`loaded ${fileName}`)
+}
+
 editor.addEventListener("input", (_ev) => markDirty(), { once: true });
 
 document.body.addEventListener("click", async (ev) => {
 	const { id } = ev.target;
 	try {
 		if (id === "load") {
-			const [result] = await showOpenFilePicker(pickerOptions);
-			const file = await result.getFile();
-			document.querySelector("#currently-editing").innerText = (fileName = file.name);
-			const content = await file.text();
-			editor.value = content;
-			markClean();
-			editor.addEventListener("input", (_ev) => markDirty(), { once: true });
-			writeBanner(`loaded ${fileName}`)
+			await openFile()
 		} else if (id === "save") {
-			const file = await showSaveFilePicker({ ...pickerOptions, suggestedName: fileName });
-			document.querySelector("#currently-editing").innerText = (fileName = file.name);
-			const writableStream = await file.createWritable();
-			await writableStream.write(editor.value);
-			await writableStream.close();
-			markClean();
-			writeBanner(`saved ${fileName}`)
+			await saveFile()
 		} else if (id === "clear") {
 			editor.value = "";
 			markClean();
@@ -73,3 +81,26 @@ document.body.addEventListener("click", async (ev) => {
 		console.error(error);
 	}
 });
+
+let editorFontSize = 12;
+const lineHeightRatio = 1.5;
+
+document.addEventListener("keydown", async (ev) => {
+	if (ev.target === editor) {
+		const pm = ev.key === "=" || ev.key === "-";
+		if (pm && ev.ctrlKey) {
+			editorFontSize += (ev.key === "=" ? 2 : -2);
+			editor.style.setProperty('--font-size', `${editorFontSize}px`);
+			editor.style.setProperty('--line-height', `${editorFontSize * lineHeightRatio}px`);
+			ev.preventDefault();
+		}
+	}
+
+	if (ev.key === "o" && ev.ctrlKey) {
+		ev.preventDefault();
+		document.querySelector("#load").click();
+	} else if (ev.key === "s" && ev.ctrlKey) {
+		ev.preventDefault();
+		document.querySelector("#save").click();
+	}
+})
