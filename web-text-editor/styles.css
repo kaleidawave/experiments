@@ -1,0 +1,69 @@
+body,
+textarea,
+button,
+input {
+	font-family: Inter, sans-serif;
+}
+
+body {
+	padding: 48px;
+}
+
+:root {
+	--background: #6f6f6f13;
+}
+
+.bar {
+	margin-bottom: 12px;
+}
+
+#status {
+	background: var(--background);
+	font-family: monospace;
+	font-size: 12px;
+	padding: 4px 8px;
+	width: fit-content;
+	border-radius: 2px;
+}
+
+#banner {
+	padding: 14px 48px;
+	border-radius: 12px;
+	background: var(--background);
+	position: fixed;
+	bottom: 64px;
+	left: 0;
+	right: 0;
+	justify-self: center;
+}
+
+textarea {
+	width: 100%;
+	resize: vertical;
+	min-height: 480px;
+	font-size: var(--font-size, 12px);
+	line-height: var(--line-height, 18px);
+}
+
+textarea,
+input,
+button {
+	box-sizing: border-box;
+	background: var(--background);
+	border-radius: 2px;
+	border: none;
+	padding: 8px 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+	body {
+		background: #121212;
+	}
+
+	body,
+	textarea,
+	input,
+	button {
+		color: #eee;
+	}
+}
