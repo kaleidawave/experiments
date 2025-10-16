@@ -23,7 +23,7 @@ impl Instant {
 
     // TODO take format string
     pub fn format(&self, template: &str) -> String {
-        let template = Template::new(template);
+        let template = Template::new(template, '%');
         let secs = self.secs;
 
         let offset_year = secs / NON_LEAP_YEAR;
@@ -44,12 +44,14 @@ impl Instant {
             NON_LEAP_YEAR_MONTHS_PREFIX_SUM
         };
 
-        let (month, (month_name, day_sum)) = date_prefixes
+        let result = date_prefixes
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, (_, acc))| *acc < day_of_year)
-            .unwrap();
+            .find(|(_, (_, acc))| *acc <= day_of_year);
+        let Some((month, (month_name, day_sum))) = result else {
+            panic!("bad day of year {day_of_year}");
+        };
 
         let date = day_of_year - day_sum + 1; // days are one indexed
         let month = month + 1;
@@ -66,19 +68,20 @@ impl Instant {
             match item {
                 "second" => Cow::Owned(format!("{second:02}", second = secs % 60)),
                 "minute" => Cow::Owned(format!("{minute:02}", minute = (secs / MINUTE) % 60)),
+                // hours are one indexed
                 "hour" | "hour24" => {
-                    let hour = (secs / HOUR) % 24 + 1; // hours are one indexed
-                    Cow::Owned(format!("{hour:02}"))
+                    Cow::Owned(format!("{hour:02}", hour = (secs / HOUR) % 24 + 1))
                 }
-                "hour12" => {
-                    let hour = (secs / HOUR) % 12 + 1; // hours are one indexed
-                    Cow::Owned(format!("{hour:02}"))
-                }
+                // hours are one indexed
+                "hour12" => Cow::Owned(format!("{hour:02}", hour = (secs / HOUR) % 12 + 1)),
                 "week_day" => Cow::Borrowed(DAYS[(total_days as usize + 3) % 7]),
+                "week_day_short" => Cow::Borrowed(&DAYS[(total_days as usize + 3) % 7][..3]),
                 "date_suffix" => Cow::Borrowed(number_index_suffix(date as usize)),
-                "date" => Cow::Owned(format!("{date}")),
+                "date" => Cow::Owned(format!("{date:02}")),
                 "month_name" => Cow::Borrowed(month_name),
+                "month_name_short" => Cow::Borrowed(&month_name[..3]),
                 "month" => Cow::Owned(format!("{month:02}")),
+                "full_year" => Cow::Owned(format!("{year}", year = year % 100)),
                 "year" => Cow::Owned(format!("{year}")),
                 name => {
                     panic!("unknown interpolation {name}");
@@ -164,9 +167,32 @@ impl Instant {
         Ok(Self::new(year, month as u64, day, 12, 0, 0))
     }
 
-    pub fn difference_days(&self, other: &Self) -> u64 {
-        // TODO could do something more complex where it counts absolute days
-        (other.secs - self.secs) / DAY
+    /// Returns the [`Duration`] between dates. If other
+    pub fn difference(&self, other: Instant) -> Result<Duration, Duration> {
+        let difference = self.secs - other.secs;
+        Ok(Duration { secs: difference })
+    }
+}
+
+pub struct Duration {
+    secs: u64,
+}
+
+impl Duration {
+    pub fn format(&self) -> String {
+        if self.secs < MINUTE {
+            format!("{secs} seconds ago", secs = self.secs)
+        } else if self.secs < HOUR {
+            format!("{mins} minutes ago", mins = self.secs / MINUTE)
+        } else if self.secs < DAY {
+            format!("{hours} hours ago", hours = self.secs / HOUR)
+        } else if self.secs < WEEK {
+            format!("{days} days ago", days = self.secs / DAY)
+        } else if self.secs < NON_LEAP_YEAR {
+            format!("{weeks} weeks ago", weeks = self.secs / WEEK)
+        } else {
+            format!("{years} years ago", years = self.secs / NON_LEAP_YEAR)
+        }
     }
 }
 
@@ -174,23 +200,6 @@ pub const MINUTE: u64 = 60;
 pub const HOUR: u64 = 60 * MINUTE;
 pub const DAY: u64 = 24 * HOUR;
 pub const WEEK: u64 = 7 * DAY;
-
-#[allow(non_snake_case)]
-pub mod FORMATS {
-    /// 🇬🇧
-    pub const DATE_MONTH_YEAR: &str = "%date/%month/%year";
-    /// 🇺🇸
-    pub const MONTH_DATE_YEAR: &str = "%month/%date/%year";
-
-    pub const DATE_NAME_MONTH_YEAR: &str = "%week_day %date%date_suffix %month_name %year";
-    pub const TIME_DATE_NAME_MONTH_YEAR: &str =
-        "%hour:%minute %week_day %date%date_suffix %month_name %year";
-
-    pub const TIME: &str = "%hour:%minute";
-    pub const TIME_WITH_SECONDS: &str = "%hour:%minute:%second";
-
-    pub const FULL_MINIMAL: &str = "%hour:%minute:%second %date/%month/%year";
-}
 
 const NON_LEAP_YEAR: u64 = 365 * DAY;
 // const LEAP_YEAR: u64 = 364 * DAY;
@@ -252,7 +261,7 @@ const DAYS: &[&str] = &[
 ];
 
 fn is_leap_year(year: u64) -> bool {
-    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
 fn number_index_suffix(item: usize) -> &'static str {
@@ -262,4 +271,22 @@ fn number_index_suffix(item: usize) -> &'static str {
         3 => "rd",
         _ => "th",
     }
+}
+
+#[allow(non_snake_case)]
+pub mod FORMATS {
+    /// 🇬🇧
+    pub const DATE_MONTH_YEAR: &str = "%date/%month/%year";
+    /// 🇺🇸
+    pub const MONTH_DATE_YEAR: &str = "%month/%date/%year";
+
+    pub const DATE_NAME_MONTH_YEAR: &str = "%week_day %date%date_suffix %month_name %year";
+    pub const TIME_DATE_NAME_MONTH_YEAR: &str =
+        "%hour:%minute %week_day %date%date_suffix %month_name %year";
+    pub const ENGLISH: &str = "%week_day the %date%date_suffix of %month_name %year";
+
+    pub const TIME: &str = "%hour:%minute";
+    pub const TIME_WITH_SECONDS: &str = "%hour:%minute:%second";
+
+    pub const FULL_MINIMAL: &str = "%hour:%minute:%second %date/%month/%year";
 }
