@@ -1,16 +1,39 @@
-name: Build assets for projects
+name: check-build-assets-and-publish
+run-name: Build assets for projects
 
-on:
-  push
+on: push
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    strategy: { matrix: { project: [rust-type-sizes] } }
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+
+    - name: Check
+      run: cargo check
+      working-directory: ${{ matrix.project }}
+
+    - name: Test
+      run: cargo test
+      working-directory: ${{ matrix.project }}
+
+    - name: Lint
+      run: cargo clippy
+      working-directory: ${{ matrix.project }}
+
   publish-assets:
-    if: false
+    needs: check
+
+    # TODO
     permissions: write-all
 
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         binary: [rust-type-sizes]
         include:
         - os: windows-latest
@@ -18,11 +41,14 @@ jobs:
           executable-extension: ".exe"
         - os: ubuntu-latest
           platform-name: x86_64-unknown-linux
+        - os: macos-latest
+          platform-name: aarch64-apple-darwin
 
     runs-on: ${{ matrix.os }}
 
     env:
-      LEVEL: debug
+      PROFILE: dev
+      OUT: target/debug
       GH_RELEASE: assets
 
     steps:
@@ -31,31 +57,48 @@ jobs:
 
       - name: Set variables
         id: information
+        shell: bash
         run: |
           echo "GITHUB_RUN_DATE=$(TZ="Europe/London" date +"%Y-%m-%d %T")" >> "$GITHUB_OUTPUT"
           echo "GIT_LAST_COMMIT=$(git log -n 1 --format="%H")" >> "$GITHUB_OUTPUT"
-        shell: bash
+
+          IFS='~' read -r project example <<< '${{ matrix.binary }}'
+          echo "WORKING_DIRECTORY=$project" >> "$GITHUB_OUTPUT"
+          echo "PROJECT_NAME=$project" >> "$GITHUB_OUTPUT"
+          if [ -n "$example" ]; then
+            echo "BUILD_SPECIFIER=--example $example" >> "$GITHUB_OUTPUT"
+            echo "ASSET_PATH=${{ env.OUT }}/examples/$example${{ matrix.executable-extension }}" >> "$GITHUB_OUTPUT"
+            echo "ASSET_NAME=$example" >> "$GITHUB_OUTPUT"
+          else
+            echo "BUILD_SPECIFIER=" >> "$GITHUB_OUTPUT"
+            echo "ASSET_PATH=${{ env.OUT }}/$project${{ matrix.executable-extension }}" >> "$GITHUB_OUTPUT"
+            echo "ASSET_NAME=$project" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build binary
-        working-directory: ${{ matrix.binary }}
-        run: cargo build
+        working-directory: ${{ steps.information.outputs.WORKING_DIRECTORY }}
+        run: cargo build ${{ steps.information.outputs.BUILD_SPECIFIER }} --profile ${{ env.PROFILE }}
         env:
           GITHUB_RUN_DATE: ${{ steps.information.outputs.GITHUB_RUN_DATE }}
           GIT_LAST_COMMIT: ${{ steps.information.outputs.GIT_LAST_COMMIT }}
-        
-      - name: Add binary to releases
-        working-directory: ${{ matrix.binary }}
-        run: gh release upload $GH_RELEASE ./target/$LEVEL/${{ matrix.binary }}${{ matrix.executable-extension }}#${{ matrix.binary }}-${{ matrix.platform-name }}${{ matrix.executable-extension }} --clobber
+
+      - name: Publish binary
+        working-directory: ${{ steps.information.outputs.WORKING_DIRECTORY }}
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        env: { "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}" }
+        run: |
+          FROM='${{ steps.information.outputs.ASSET_PATH }}'
+          TO='${{ steps.information.outputs.ASSET_NAME }}-${{ matrix.platform-name }}${{ matrix.executable-extension }}'
+          LABEL="${{ steps.information.outputs.PROJECT_NAME }}-$TO"
+          mv $FROM $TO
+          gh release upload $GH_RELEASE "$TO#LABEL" --clobber
 
   publish-crates:
+    needs: check
+
     permissions: write-all
 
-    strategy:
-      matrix:
-        binary: [rust-type-sizes]
+    strategy: { matrix: { project: [rust-type-sizes] } }
         
     runs-on: ubuntu-latest
 
@@ -64,24 +107,20 @@ jobs:
         uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Set git credentials
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
 
-      - name: Crates publish
-        uses: kaleidawave/crates-release-gh-action@improvements
+      - uses: kaleidawave/crates-release-gh-action@improvements
         id: release
         with:
+          working-directory: ${{ matrix.project }}
+          crates-token: ${{ steps.auth.outputs.token }}
           version: patch
-          crates-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          working-directory: ${{ matrix.binary }}
 
       - name: Push updated Cargo.toml
         run: |
-          git status
-          echo ${{ steps.checkout.outputs.ref }}
-          git add .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -u
           git commit -m "Release: ${{ steps.release.outputs.new-versions-description }}"
-          git tag "release/${{ steps.release.outputs.new-version }}"
           git push --tags origin ${{ steps.checkout.outputs.ref }}
