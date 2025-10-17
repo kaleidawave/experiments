@@ -20,3 +20,4 @@ test = "spectra check README.md 'target/debug/lines-of-code --rpc --interactive'
 
 [dependencies]
 glob = "0.3.3"
+json-builder-macro = "0.0.1"

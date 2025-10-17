@@ -1,19 +1,22 @@
+use std::io::{BufRead, BufReader};
+
 #[derive(Default, Debug)]
 pub struct RustSection {
-    pub lines: usize,
+    pub package_name: String,
+    pub lines: u64,
     /// lines dedicated to tests.
     /// these can be within the `tests` folder or surrounded by `#[cfg(test)]`
-    pub test_lines: usize,
+    pub test_lines: u64,
     /// lines dedicated to examples
-    pub example_lines: usize,
-    enums: usize,
-    structs: usize,
-    type_aliases: usize,
-    fns: usize,
-    impls: usize,
-    variables: usize,
-    comments: usize,
-    pub modules: usize,
+    pub example_lines: u64,
+    enums: u64,
+    structs: u64,
+    type_aliases: u64,
+    fns: u64,
+    impls: u64,
+    variables: u64,
+    comments: u64,
+    pub modules: u64,
 }
 
 impl std::ops::AddAssign for RustSection {
@@ -30,6 +33,7 @@ impl std::ops::AddAssign for RustSection {
             lines,
             modules,
             type_aliases,
+            package_name: _,
         } = other;
         self.enums += enums;
         self.structs += structs;
@@ -45,14 +49,15 @@ impl std::ops::AddAssign for RustSection {
     }
 }
 
-pub fn measure(on: &str) -> RustSection {
+pub fn measure<R: std::io::Read>(on: BufReader<R>) -> RustSection {
     let mut is_test = false;
-    let mut test_indent: Option<&str> = None;
+    let mut test_indent: Option<String> = None;
     let mut code = RustSection::default();
     let mut is_multiline_comment = false;
 
     for line in on.lines() {
-        if let Some(indent) = test_indent {
+        let line = line.unwrap();
+        if let Some(ref indent) = test_indent {
             if let Some(rest) = line.strip_prefix(indent)
                 && rest == "}"
             {
@@ -78,7 +83,7 @@ pub fn measure(on: &str) -> RustSection {
         if std::mem::take(&mut is_test) {
             if line.trim_end().ends_with('{') {
                 let indent_count = line.len() - line.trim_start().len();
-                test_indent = Some(&line[..indent_count]);
+                test_indent = Some(line[..indent_count].to_owned());
             }
             continue;
         }
@@ -147,6 +152,7 @@ pub fn measure(on: &str) -> RustSection {
 impl RustSection {
     pub fn to_json(&self) -> String {
         let Self {
+            package_name,
             enums,
             structs,
             fns,
@@ -159,9 +165,28 @@ impl RustSection {
             example_lines,
             type_aliases,
         } = self;
-        format!(
-            r#"{{"modules":{modules},"lines":{lines},"variables":{variables},"type_aliases":{type_aliases},"example_lines":{example_lines},"comments":{comments},"enums":{enums},"structs":{structs},"fns":{fns},"impls":{impls},"test_lines":{test_lines}}}"#
-        )
+
+        let mut buf = String::new();
+        {
+            let mut builder = json_builder_macro::Builder::new(&mut buf);
+            if !package_name.is_empty() {
+                builder.add("name", package_name.as_str());
+            }
+
+            builder.add("modules", *modules);
+            builder.add("lines", *lines);
+            builder.add("variables", *variables);
+            builder.add("type_aliases", *type_aliases);
+            builder.add("comments", *comments);
+            builder.add("enums", *enums);
+            builder.add("structs", *structs);
+            builder.add("functions", *fns);
+            builder.add("implementations", *impls);
+            builder.add("test_lines", *test_lines);
+            builder.add("example_lines", *example_lines);
+            builder.end();
+        }
+        buf
     }
 
     pub fn debug(&self) {
@@ -177,6 +202,7 @@ impl RustSection {
             modules,
             type_aliases,
             example_lines,
+            package_name: _,
         } = self;
         if *lines > 0 {
             println!("lines: {lines}");

@@ -1,7 +1,7 @@
 #[test]
 fn main() -> std::process::ExitCode {
     let output = std::process::Command::new("spectra")
-        .arg("check")
+        .arg("test")
         .arg("README.md")
         .arg("./target/debug/lines-of-code --rpc --interactive")
         .status()
