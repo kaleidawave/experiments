@@ -12,10 +12,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         binary: [
-          path-fs-utilities~commits,
           path-fs-utilities~find-empty,
           path-fs-utilities~hosts-tool,
-          path-fs-utilities~path-dirty,
         ]
         include:
         - os: windows-latest
@@ -30,7 +28,8 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     env:
-      LEVEL: debug
+      PROFILE: dev
+      OUT: target/debug
       GH_RELEASE: assets
 
     steps:
@@ -39,34 +38,35 @@ jobs:
 
       - name: Set variables
         id: information
+        shell: bash
         run: |
           echo "GITHUB_RUN_DATE=$(TZ="Europe/London" date +"%Y-%m-%d %T")" >> "$GITHUB_OUTPUT"
           echo "GIT_LAST_COMMIT=$(git log -n 1 --format="%H")" >> "$GITHUB_OUTPUT"
+
           IFS='~' read -r binary example <<< '${{ matrix.binary }}'
           echo "WORKING_DIRECTORY=$binary" >> "$GITHUB_OUTPUT"
           if [ -n "$example" ]; then
             echo "BUILD_SPECIFIER=--example $example" >> "$GITHUB_OUTPUT"
-            echo "ASSET_PATH=examples/$example" >> "$GITHUB_OUTPUT"
+            echo "ASSET_PATH=${{ env.OUT }}/examples/$example" >> "$GITHUB_OUTPUT"
+            echo "ASSET_NAME=$example" >> "$GITHUB_OUTPUT"
           else
             echo "BUILD_SPECIFIER=" >> "$GITHUB_OUTPUT"
-            echo "ASSET_PATH=$binary" >> "$GITHUB_OUTPUT"
+            echo "ASSET_PATH=${{ env.OUT }}/$binary" >> "$GITHUB_OUTPUT"
+            echo "ASSET_NAME=$binary" >> "$GITHUB_OUTPUT"
           fi
-
-        shell: bash
 
       - name: Build binary
         working-directory: ${{ steps.information.outputs.WORKING_DIRECTORY }}
-        run: cargo build ${{ steps.information.outputs.BUILD_SPECIFIER }}
+        run: cargo build ${{ steps.information.outputs.BUILD_SPECIFIER }} --profile ${{ env.PROFILE }}
         env:
           GITHUB_RUN_DATE: ${{ steps.information.outputs.GITHUB_RUN_DATE }}
           GIT_LAST_COMMIT: ${{ steps.information.outputs.GIT_LAST_COMMIT }}
-        
+
       - name: Publish binary
         working-directory: ${{ steps.information.outputs.WORKING_DIRECTORY }}
+        shell: bash
+        env: { "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}" }
         run: |
-          FROM="./target/$LEVEL/${{ steps.information.outputs.ASSET_PATH }}${{ matrix.executable-extension }}"
+          FROM="${{ steps.information.outputs.ASSET_PATH }}${{ matrix.executable-extension }}"
           TO="${{ matrix.binary }}-${{ matrix.platform-name }}${{ matrix.executable-extension }}"
           gh release upload $GH_RELEASE "$FROM#$TO" --clobber
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

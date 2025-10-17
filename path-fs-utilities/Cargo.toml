@@ -1,10 +1,9 @@
 [package]
 name = "path-fs-utilities"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2024"
-
-[dependencies]
-git2 = { version = "0.20.2", default-features = false }
+description = "Utilities for paths and the filesystem (and git)"
+publish = false
 
 [lib]
 path = "lib.rs"
