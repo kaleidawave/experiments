@@ -1,246 +1,120 @@
 #![warn(clippy::pedantic)]
 
-use std::io::{self, BufRead, BufReader, Read, Write};
-use std::process::{self, Child, Command, ExitStatus, Stdio};
-use std::sync;
-use std::thread;
-use std::time::Duration;
+use std::io::{self, BufRead, BufReader};
+use std::process::{self, Command, ExitStatus, Stdio};
+use std::{sync, thread, time};
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Channel {
     Stdout,
     Stderr,
 }
 
-pub fn spawn_command(mut command: Command, grouped: bool) -> io::Result<CommandOut> {
-    if grouped {
-        let (reader, writer) = io::pipe()?;
+#[derive(Debug, PartialEq, Eq)]
+pub enum ProcessNotification {
+    Message(Channel, String),
+    Completed,
+}
 
-        let child = command.stdout(writer.try_clone()?).stderr(writer).spawn()?;
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum ProcessStatus {
+    Finished,
+    Continuing,
+}
 
-        Ok(CommandOut::Grouped(child, BufReader::new(reader)))
-    } else {
-        let (reader, writer) = io::pipe()?;
+pub struct Process {
+    child: process::Child,
+    stdout_handle: thread::JoinHandle<()>,
+    stderr_handle: thread::JoinHandle<()>,
+    receiver: sync::mpsc::Receiver<ProcessNotification>,
+}
 
+impl Process {
+    pub fn spawn(mut command: Command) -> io::Result<Self> {
         let mut child = command
             .stdout(Stdio::piped())
-            .stderr(writer.try_clone()?)
+            .stderr(Stdio::piped())
             .spawn()?;
 
         let stdout = BufReader::new(child.stdout.take().expect("Failed to capture stdout"));
-        // let stderr = BufReader::new(child.stderr.take().expect("Failed to capture stderr"));
-        let stderr = BufReader::new(reader);
+        let stderr = BufReader::new(child.stderr.take().expect("Failed to capture stderr"));
 
-        Ok(CommandOut::Separated {
+        let (sender, receiver) = sync::mpsc::sync_channel::<ProcessNotification>(0);
+
+        // Thread to read `stdout`
+        let sender_stdout = sender.clone();
+        let stdout_handle = thread::spawn(move || {
+            for line in stdout.lines().map_while(Result::ok) {
+                // TODO `expect` here
+                sender_stdout
+                    .send(ProcessNotification::Message(Channel::Stdout, line))
+                    .expect("Failed to send stdout");
+            }
+
+            // TODO `expect` here
+            sender_stdout
+                .send(ProcessNotification::Completed)
+                .expect("Failed to send stdout");
+        });
+
+        // Thread to read `stderr`
+        let sender_stderr = sender; // .clone();
+        let stderr_handle = thread::spawn(move || {
+            for line in stderr.lines().map_while(Result::ok) {
+                // TODO `expect` here
+                sender_stderr
+                    .send(ProcessNotification::Message(Channel::Stderr, line))
+                    .expect("Failed to send stderr");
+            }
+        });
+
+        Ok(Self {
             child,
-            stdout,
-            stderr,
-            stderr_writer: writer,
+            stdout_handle,
+            stderr_handle,
+            receiver,
         })
     }
-}
 
-pub enum CommandOut {
-    Grouped(Child, BufReader<io::PipeReader>),
-    Separated {
-        child: Child,
-        stdout: BufReader<process::ChildStdout>,
-        stderr: BufReader<io::PipeReader>,
-        // Used to 'blip' the writer so that it can exit
-        stderr_writer: io::PipeWriter,
-    },
-}
-
-impl CommandOut {
-    pub fn get_child(&mut self) -> &mut Child {
-        match self {
-            CommandOut::Grouped(child, _) | CommandOut::Separated { child, .. } => child,
-        }
-    }
-
-    pub fn read_until(&mut self, cb: impl Fn(&str) -> bool) -> io::Result<(String, String)> {
-        match self {
-            CommandOut::Grouped(_child, reader) => {
-                let mut buf = String::new();
-                for line in reader.lines().map_while(Result::ok) {
-                    if cb(&line) {
-                        break;
-                    }
-                    buf.push_str(&line);
-                    buf.push('\n');
-                }
-                Ok((buf, String::default()))
-            }
-            CommandOut::Separated {
-                child: _,
-                stdout,
-                stderr,
-                stderr_writer,
-            } => {
-                let (mut stdout_buf, mut stderr_buf) = thread::scope(|s| {
-                    let thread = s.spawn(|| {
-                        let mut stderr_buf = String::new();
-                        for line in stderr.lines().map_while(Result::ok) {
-                            if line == "please finish" {
-                                break;
-                            }
-                            stderr_buf.push_str(&line);
-                            stderr_buf.push('\n');
-                        }
-                        stderr_buf
-                    });
-
-                    let mut stdout_buf = String::new();
-                    for line in stdout.lines().map_while(Result::ok) {
-                        if cb(&line) {
+    pub fn read_timeout(
+        &self,
+        timeout: time::Duration,
+        end_message: &str,
+    ) -> (Vec<(Channel, String)>, io::Result<ProcessStatus>) {
+        let mut messages = Vec::new();
+        loop {
+            let out = self.receiver.recv_timeout(timeout);
+            match out {
+                Ok(item) => match item {
+                    ProcessNotification::Message(channel, message) => {
+                        if message == end_message {
                             break;
                         }
-                        stdout_buf.push_str(&line);
-                        stdout_buf.push('\n');
+                        messages.push((channel, message));
                     }
-
-                    writeln!(stderr_writer, "please finish").unwrap();
-
-                    let stderr_buf = thread.join().unwrap();
-
-                    (stdout_buf, stderr_buf)
-                });
-
-                stdout_buf.truncate(stdout_buf.trim_end().len());
-                stderr_buf.truncate(stderr_buf.trim_end().len());
-                Ok((stdout_buf, stderr_buf))
-            }
-        }
-    }
-
-    pub fn read_to_end(self) -> io::Result<(String, String, ExitStatus)> {
-        match self {
-            CommandOut::Grouped(mut child, mut reader) => {
-                let mut buf = String::new();
-                reader.read_to_string(&mut buf)?;
-                let status = child.wait()?;
-                Ok((buf, String::default(), status))
-            }
-            CommandOut::Separated {
-                mut child,
-                mut stdout,
-                mut stderr,
-                stderr_writer,
-            } => {
-                let mut stdout_buf = String::new();
-                let mut stderr_buf = String::new();
-
-                stdout.read_to_string(&mut stdout_buf)?;
-                drop(stderr_writer);
-                stderr.read_to_string(&mut stderr_buf)?;
-
-                stdout_buf.truncate(stdout_buf.trim_end().len());
-                stderr_buf.truncate(stderr_buf.trim_end().len());
-
-                let status = child.wait()?;
-
-                Ok((stdout_buf, stderr_buf, status))
-            }
-        }
-    }
-
-    pub fn read_independent_to_end(self) -> io::Result<(Vec<(Channel, String)>, ExitStatus)> {
-        if let Self::Separated {
-            mut child,
-            stdout,
-            stderr,
-            stderr_writer,
-        } = self
-        {
-            let (tx, rx) = sync::mpsc::channel();
-
-            drop(stderr_writer);
-
-            // Thread to read `stdout`
-            let tx_stdout = tx.clone();
-            thread::spawn(move || {
-                for line in stdout.lines().map_while(Result::ok) {
-                    // TODO `expect` here
-                    tx_stdout
-                        .send((Channel::Stdout, line))
-                        .expect("Failed to send stdout");
+                    ProcessNotification::Completed => {
+                        return (messages, Ok(ProcessStatus::Finished));
+                    }
+                },
+                Err(_timeout) => {
+                    let result = Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "timed out reading notification",
+                    ));
+                    return (messages, result);
                 }
-            });
-
-            // Thread to read `stderr`
-            thread::spawn(move || {
-                for line in stderr.lines().map_while(Result::ok) {
-                    // TODO `expect` here
-                    tx.send((Channel::Stderr, line))
-                        .expect("Failed to send stderr");
-                }
-            });
-
-            let out: Vec<_> = rx.into_iter().collect();
-            let status = child.wait()?;
-
-            Ok((out, status))
-        } else {
-            panic!("cannot read merged independently");
-        }
-    }
-}
-
-const TIMEOUT_MESSAGE: &[u8] = b"=== TIMEOUT ===";
-pub const END_MESSAGE: &[u8] = b"=== end ===";
-
-pub fn run_timeout<O>(
-    timeout: Duration,
-    command: impl FnOnce(std::io::PipeWriter) -> O,
-) -> Result<(O, Vec<u8>), Box<dyn std::error::Error>> {
-    use std::sync::{Arc, Condvar, Mutex};
-
-    let (ping_rx, ping_tx) = io::pipe()?;
-
-    let mut ping_tx2 = ping_tx.try_clone().expect("could not clone writer");
-
-    let main_pair = Arc::new((Mutex::new(false), Condvar::new()));
-    let thread_pair = Arc::clone(&main_pair);
-
-    let _monitor = thread::spawn(move || {
-        let (lock, cvar) = &*thread_pair;
-        let completed = lock.lock().unwrap();
-        let result = cvar.wait_timeout(completed, timeout);
-        if let Ok((_finished, result)) = result {
-            if result.timed_out() {
-                io::Write::write_all(&mut ping_tx2, TIMEOUT_MESSAGE).unwrap();
             }
         }
-    });
 
-    // My command
-    let out = command(ping_tx);
-
-    let (lock, cvar) = &*main_pair;
-
-    let mut reader = BufReader::new(ping_rx);
-    let mut buf = Vec::new();
-    while let Ok(bytes) = reader.fill_buf() {
-        if bytes.ends_with(TIMEOUT_MESSAGE) {
-            return Err(String::from("Timed out").into());
-        }
-        if bytes.ends_with(END_MESSAGE) {
-            {
-                *lock.lock().unwrap() = true;
-                // We notify the condvar that the value has changed.
-                cvar.notify_one();
-            }
-            break;
-        }
-        let to_continue = bytes.len();
-        buf.extend_from_slice(bytes);
-        if to_continue == 0 {
-            break;
-        }
-        reader.consume(to_continue);
+        (messages, Ok(ProcessStatus::Continuing))
     }
 
-    Ok((out, buf))
+    pub fn end(mut self) -> io::Result<ExitStatus> {
+        let status = self.child.wait()?;
+        self.stdout_handle.join().unwrap();
+        self.stderr_handle.join().unwrap();
+        Ok(status)
+    }
 }
 
 #[cfg(test)]
@@ -257,17 +131,18 @@ mod tests {
             console.error('Hi');
         "#;
         let _ = command.args(&["--eval", program]);
-        let result = spawn_command(command, false).unwrap();
-        let (result, _exit_code) = result.read_independent_to_end().unwrap();
+        let result = Process::spawn(command).unwrap();
+        let (result, out) = result.read_timeout(time::Duration::MAX, "");
         assert_eq!(
-            result,
-            vec![
+            &result,
+            &[
                 (Channel::Stdout, "Hiya".into()),
                 (Channel::Stderr, "Hello".into()),
                 (Channel::Stdout, "Hola".into()),
                 (Channel::Stderr, "Hi".into())
             ]
         );
+        assert_eq!(out.unwrap(), ProcessStatus::Finished);
     }
 
     #[test]
@@ -280,59 +155,51 @@ mod tests {
             console.log('end');
         "#;
         let _ = command.args(&["--eval", program]);
-        let mut result = spawn_command(command, false).unwrap();
-        let (stdout, stderr) = result.read_until(|line| matches!(line, "end")).unwrap();
-        assert_eq!((stdout.as_str(), stderr.as_str()), ("Hiya\ntest", "Hello"));
-    }
+        let result = Process::spawn(command).unwrap();
 
-    #[test]
-    fn to_end() {
-        let mut command = Command::new("node");
-        let program = r#"
-            console.log('Hiya');
-            console.error('Hello');
-            console.log('test');
-            console.log('end');
-        "#;
-        let _ = command.args(&["--eval", program]);
-        let result = spawn_command(command, false).unwrap();
-        let (stdout, stderr, _) = result.read_to_end().unwrap();
+        let (result, out) = result.read_timeout(time::Duration::MAX, "test");
         assert_eq!(
-            (stdout.as_str(), stderr.as_str()),
-            ("Hiya\ntest\nend", "Hello")
+            &result,
+            &[
+                (Channel::Stdout, "Hiya".into()),
+                (Channel::Stderr, "Hello".into()),
+            ]
         );
+        assert_eq!(out.unwrap(), ProcessStatus::Continuing);
+
+        let (result, out) = result.read_timeout(time::Duration::MAX, "");
+        assert_eq!(
+            &result,
+            &[
+                (Channel::Stdout, "test".into()),
+                (Channel::Stdout, "end".into()),
+            ]
+        );
+        assert_eq!(out.unwrap(), ProcessStatus::Finished);
     }
 
     #[test]
     fn timeout() {
-        let timeout = Duration::from_millis(1000);
+        let mut command = Command::new("node");
+        let program = r#"
+            console.log('Hiya');
+            setTimeout(() => { }, 2000);
+        "#;
+        let _ = command.args(&["--eval", program]);
+        let result = Process::spawn(command).unwrap();
+        let (result, out) = result.read_timeout(time::Duration::MAX, "");
+        assert_eq!(&result, &[(Channel::Stdout, "Hiya".into())]);
+        assert_eq!(out.unwrap(), ProcessStatus::Finished);
 
-        type ThreadResult<T> = thread::JoinHandle<io::Result<T>>;
-
-        let out = run_timeout::<ThreadResult<_>>(timeout, |mut writer| {
-            thread::spawn(move || {
-                writer.write_all(&[1, 2, 3])?;
-                thread::sleep(Duration::from_millis(100));
-                writer.write_all(&[4, 5, 6])?;
-                thread::sleep(Duration::from_millis(100));
-                writer.write_all(END_MESSAGE)?;
-                Ok(())
-            })
-        });
-
-        assert_eq!(out.expect("timed out").1, &[1, 2, 3, 4, 5, 6]);
-
-        let out = run_timeout::<ThreadResult<_>>(timeout, |mut writer| {
-            thread::spawn(move || {
-                writer.write_all(&[1, 2, 3])?;
-                thread::sleep(Duration::from_millis(1000));
-                writer.write_all(&[4, 5, 6])?;
-                thread::sleep(Duration::from_millis(3000));
-                writer.write_all(END_MESSAGE)?;
-                Ok(())
-            })
-        });
-
-        assert!(out.is_err());
+        let mut command = Command::new("node");
+        let program = r#"
+            console.log('Hiya');
+            setTimeout(() => { }, 2000);
+        "#;
+        let _ = command.args(&["--eval", program]);
+        let result = Process::spawn(command).unwrap();
+        let (result, out) = result.read_timeout(time::Duration::from_millis(1000), "");
+        assert_eq!(&result, &[(Channel::Stdout, "Hiya".into())]);
+        assert_eq!(out.unwrap_err().kind(), io::ErrorKind::TimedOut);
     }
 }
