@@ -66,7 +66,6 @@ pub fn item_from_input(out: &str, skip: impl Fn(&str, usize) -> bool) -> Option<
 
     let mut variant = None;
     let mut kind = if let Some(line) = rest.next() {
-        dbg!(line);
         let line = line.strip_prefix("print-type-size     ").unwrap();
         if let Some(line) = line.strip_prefix("discriminant: ") {
             let bytes = line
@@ -179,11 +178,17 @@ pub fn item_from_input(out: &str, skip: impl Fn(&str, usize) -> bool) -> Option<
                         fields: Vec::new(),
                     });
                 } else if let Some(line) = line.strip_prefix("    field `.") {
-                    let (name, size) = line.split_once("`: ").unwrap();
-                    let (size, alignment) = size.split_once(", alignment: ").unwrap_or((size, ""));
+                    let (name, item) = line.split_once("`: ").unwrap();
+                    let (item, offset) = item.split_once(", offset: ").unwrap_or((item, ""));
+                    let (size, alignment) = item.split_once(", alignment: ").unwrap_or((item, ""));
                     let size = parse_byte_literal(size);
                     let alignment = if !alignment.is_empty() {
                         parse_byte_literal(alignment)
+                    } else {
+                        0
+                    };
+                    let _offset = if !offset.is_empty() {
+                        parse_byte_literal(offset)
                     } else {
                         0
                     };
@@ -197,7 +202,12 @@ pub fn item_from_input(out: &str, skip: impl Fn(&str, usize) -> bool) -> Option<
                         .unwrap()
                         .fields
                         .push(FieldOrPadding::Field(field));
-                } else if let Some(line) = line.strip_prefix("    padding: ") {
+                } else if let Some(line) = line
+                    .strip_prefix("    end padding: ")
+                    .or_else(|| line.strip_prefix("    padding: "))
+                    .or_else(|| line.strip_prefix("end padding: "))
+                {
+                    // TODO discern cases?
                     let size = parse_byte_literal(line);
                     variant
                         .as_mut()
@@ -238,7 +248,7 @@ fn parse_byte_count(on: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{item_from_input, Field, Kind, FieldOrPadding};
+    use super::{Field, FieldOrPadding, Kind, item_from_input};
 
     #[test]
     fn parse() {

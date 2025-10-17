@@ -9,6 +9,7 @@ keywords = ["rust", "type-sizes", "tool"]
 repository = "https://github.com/kaleidawave/experiments"
 
 [dependencies]
+filetime = "0.2.25"
 
 [lib]
 path = "lib.rs"
