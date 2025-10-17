@@ -1,0 +1,11 @@
+[package]
+name = "stdout-stderr-utilities"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+# name = "stdout_stderr_utilities"
+path = "./lib.rs"
+
+[dependencies]
