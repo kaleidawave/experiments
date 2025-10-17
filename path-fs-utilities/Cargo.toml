@@ -1,0 +1,9 @@
+[package]
+name = "path-fs-utilities"
+version = "0.0.0"
+edition = "2024"
+description = "Utilities for paths and the filesystem (and git)"
+publish = false
+
+[lib]
+path = "lib.rs"
