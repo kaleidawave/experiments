@@ -1,0 +1,12 @@
+[package]
+name = "scaffolder"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "scaffolder"
+path = "main.rs"
+
+[dependencies]
+multiline-term-input = "0.1.0"
+simple-yaml-parser = { git = "https://github.com/kaleidawave/simple-yaml-parser.git", branch = "improvements", version = "0.0.0" }
