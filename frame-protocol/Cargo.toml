@@ -1,0 +1,15 @@
+[package]
+name = "frame-protocol"
+description = "A format for short to medium length messages."
+version = "0.0.0"
+repository = "https://github.com/kaleidawave/experiments"
+edition = "2024"
+authors = ["Ben <kaleidawave@gmail.com>"]
+license = "MIT"
+keywords = ["encoding", "message", "stdin-stdout", "iterator", "protocol"]
+categories = ["encoding", "network-programming", "text-processing"]
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
