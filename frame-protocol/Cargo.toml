@@ -9,6 +9,8 @@ license = "MIT"
 keywords = ["encoding", "message", "stdin-stdout", "iterator", "protocol"]
 categories = ["encoding", "network-programming", "text-processing"]
 
+metadata.version_sync = ["javascript/deno.json"]
+
 [lib]
 path = "lib.rs"
 
