@@ -1,7 +1,7 @@
 [package]
 name = "frame-protocol"
 description = "A format for short to medium length messages."
-version = "0.0.0"
+version = "0.0.1"
 repository = "https://github.com/kaleidawave/experiments"
 edition = "2024"
 authors = ["Ben <kaleidawave@gmail.com>"]
