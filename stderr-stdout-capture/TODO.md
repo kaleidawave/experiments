@@ -1,0 +1,4 @@
+- Only capture stderr
+- Add workflow
+- Add windows and test
+- Publish?
