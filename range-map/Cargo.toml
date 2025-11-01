@@ -1,0 +1,10 @@
+[package]
+name = "range-map"
+description = "a map with a given order for finding the narrowest range (or ranges) that contains a index"
+authors = ["Ben <kaleidawave@gmail.com>"]
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
