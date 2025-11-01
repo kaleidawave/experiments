@@ -1,0 +1,12 @@
+[package]
+name = "dynamic-linking"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "main"
+path = "main.rs"
+
+[dependencies]
+libloading = "0.8.9"
