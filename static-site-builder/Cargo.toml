@@ -1,0 +1,18 @@
+[package]
+name = "static-site-builder"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+path = "main.rs"
+name = "main"
+
+# TODO YAML parser for configuration
+[dependencies]
+json-builder-macro = "0.0.3"
+libloading = "0.9.0"
+simple-markdown-parser = { git = "https://github.com/kaleidawave/simple-markdown-parser", branch = "improvements", version = "0.0.7" }
+tree-sitter = "0.25.10"
+
+# simple-markdown-parser = { path = "/Users/Benjamin/Projects/simple-markdown-parser", version = "0.0.7" }
