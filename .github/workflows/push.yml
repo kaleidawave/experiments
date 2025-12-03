@@ -1,0 +1,56 @@
+name: publish-external-assets
+run-name: Build assets for (external) projects
+
+on: push
+
+jobs:
+  publish-assets:
+    permissions: write-all
+
+    runs-on: x86_64-unknown-linux
+
+    env:
+      PROFILE: dev
+      OUT: target/debug
+      GH_RELEASE: assets
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: taiki-e/cargo-fuzz
+          ref: default-target
+      - uses: dtolnay/rust-toolchain@stable
+
+      # - name: Set variables
+      #   id: information
+      #   shell: bash
+      #   run: |
+      #     echo "GITHUB_RUN_DATE=$(TZ="Europe/London" date +"%Y-%m-%d %T")" >> "$GITHUB_OUTPUT"
+      #     echo "GIT_LAST_COMMIT=$(git log -n 1 --format="%H")" >> "$GITHUB_OUTPUT"
+
+      #     IFS='~' read -r project example <<< '${{ matrix.binary }}'
+      #     echo "WORKING_DIRECTORY=$project" >> "$GITHUB_OUTPUT"
+      #     echo "PROJECT_NAME=$project" >> "$GITHUB_OUTPUT"
+      #     if [ -n "$example" ]; then
+      #       echo "BUILD_SPECIFIER=--example $example" >> "$GITHUB_OUTPUT"
+      #       echo "ASSET_PATH=${{ env.OUT }}/examples/$example${{ matrix.executable-extension }}" >> "$GITHUB_OUTPUT"
+      #       echo "ASSET_NAME=$example" >> "$GITHUB_OUTPUT"
+      #     else
+      #       echo "BUILD_SPECIFIER=" >> "$GITHUB_OUTPUT"
+      #       echo "ASSET_PATH=${{ env.OUT }}/$project${{ matrix.executable-extension }}" >> "$GITHUB_OUTPUT"
+      #       echo "ASSET_NAME=$project" >> "$GITHUB_OUTPUT"
+      #     fi
+
+      - name: Build binary
+        run: cargo build --profile ${{ env.PROFILE }}
+
+      - name: Publish binary
+        shell: bash
+        env: { "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}" }
+        run: |
+          FROM='${{ env.OUT }}/cargo-fuzz'
+          TO='cargo-fuzz-x86_64-unknown-linux'
+          # LABEL="cargo-fuzz-$TO"
+          LABEL="$TO"
+          mv $FROM $TO
+          gh release upload $GH_RELEASE "$TO#$LABEL" --clobber
