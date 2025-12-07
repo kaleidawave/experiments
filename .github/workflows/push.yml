@@ -27,14 +27,14 @@ jobs:
 
       - name: Publish binary
         shell: bash
-        env: { "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}" }
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
         run: |
           FROM='${{ env.OUT }}/cargo-fuzz'
           TO='cargo-fuzz-x86_64-unknown-linux'
           # LABEL="cargo-fuzz-$TO"
           LABEL="$TO"
           mv $FROM $TO
-          gh release upload $GH_RELEASE "$TO#$LABEL" --clobber
+          gh release upload $GH_RELEASE "$TO#$LABEL" --clobber -R ${{ github.repository }}
 
   build-and-upload-languages:
     permissions: write-all
