@@ -39,7 +39,7 @@ jobs:
   build-and-upload-languages:
     permissions: write-all
 
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
 
     strategy:
       fail-fast: false
