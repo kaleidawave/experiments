@@ -7,7 +7,7 @@ jobs:
   build-and-upload-binaries:
     permissions: write-all
 
-    runs-on: x86_64-unknown-linux
+    runs-on: ubuntu-latest
 
     env:
       PROFILE: dev
@@ -39,7 +39,7 @@ jobs:
   build-and-upload-languages:
     permissions: write-all
 
-    runs-on: x86_64-unknown-linux
+    runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
