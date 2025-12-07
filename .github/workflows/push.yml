@@ -4,7 +4,7 @@ run-name: Build assets for (external) projects
 on: push
 
 jobs:
-  publish-assets:
+  build-and-upload-binaries:
     permissions: write-all
 
     runs-on: x86_64-unknown-linux
@@ -19,27 +19,8 @@ jobs:
         with:
           repository: taiki-e/cargo-fuzz
           ref: default-target
+
       - uses: dtolnay/rust-toolchain@stable
-
-      # - name: Set variables
-      #   id: information
-      #   shell: bash
-      #   run: |
-      #     echo "GITHUB_RUN_DATE=$(TZ="Europe/London" date +"%Y-%m-%d %T")" >> "$GITHUB_OUTPUT"
-      #     echo "GIT_LAST_COMMIT=$(git log -n 1 --format="%H")" >> "$GITHUB_OUTPUT"
-
-      #     IFS='~' read -r project example <<< '${{ matrix.binary }}'
-      #     echo "WORKING_DIRECTORY=$project" >> "$GITHUB_OUTPUT"
-      #     echo "PROJECT_NAME=$project" >> "$GITHUB_OUTPUT"
-      #     if [ -n "$example" ]; then
-      #       echo "BUILD_SPECIFIER=--example $example" >> "$GITHUB_OUTPUT"
-      #       echo "ASSET_PATH=${{ env.OUT }}/examples/$example${{ matrix.executable-extension }}" >> "$GITHUB_OUTPUT"
-      #       echo "ASSET_NAME=$example" >> "$GITHUB_OUTPUT"
-      #     else
-      #       echo "BUILD_SPECIFIER=" >> "$GITHUB_OUTPUT"
-      #       echo "ASSET_PATH=${{ env.OUT }}/$project${{ matrix.executable-extension }}" >> "$GITHUB_OUTPUT"
-      #       echo "ASSET_NAME=$project" >> "$GITHUB_OUTPUT"
-      #     fi
 
       - name: Build binary
         run: cargo build --profile ${{ env.PROFILE }}
@@ -54,3 +35,37 @@ jobs:
           LABEL="$TO"
           mv $FROM $TO
           gh release upload $GH_RELEASE "$TO#$LABEL" --clobber
+
+  build-and-upload-languages:
+    permissions: write-all
+
+    runs-on: x86_64-unknown-linux
+
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        repository:
+          - https://github.com/tree-sitter/tree-sitter-rust
+          - https://github.com/tree-sitter/tree-sitter-go
+          - https://github.com/tree-sitter/tree-sitter-regex
+          - https://github.com/tree-sitter/tree-sitter-typescript
+          - https://github.com/tree-sitter-grammars/tree-sitter-zig
+          - https://github.com/tree-sitter-grammars/tree-sitter-yaml
+          - https://github.com/tree-sitter-grammars/tree-sitter-markdown
+          - https://github.com/DerekStride/tree-sitter-sql
+
+    steps:
+      - name: clone, build and publish
+        env: 
+          GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          GH_RELEASE: assets
+        run: |
+          url='${{ matrix.repository }}'
+          # get the part after the last '-' in the URL
+          language=${url##*-}
+
+          git clone "$url.git" .
+          clang -dynamiclib -o "libtree-sitter-$language.dylib" parser.c scanner.c -Isrc -fPIC "-Wl,-exported_symbol,_tree_sitter_$language"
+
+          gh release upload $GH_RELEASE "libtree-sitter-$language.dylib" --clobber
