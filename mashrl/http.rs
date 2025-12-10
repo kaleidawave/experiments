@@ -171,6 +171,79 @@ impl ResponseCode {
             }
         })
     }
+
+    /// # Panics
+    ///
+    /// TODO Panics on custom HTTP codes?
+    #[must_use]
+    pub fn to_str(&self) -> &str {
+        match *self {
+            Self::CONTINUE => "100 Continue",
+            Self::SWITCHING_PROTOCOLS => "101 Switching Protocols",
+            Self::PROCESSING => "102 Processing",
+            Self::EARLY_HINTS => "103 Early Hints",
+            Self::OK => "200 OK",
+            Self::CREATED => "201 Created",
+            Self::ACCEPTED => "202 Accepted",
+            Self::NON_AUTHORITATIVE_INFORMATION => "203 Non-Authoritative Information",
+            Self::NO_CONTENT => "204 No Content",
+            Self::RESET_CONTENT => "205 Reset Content",
+            Self::PARTIAL_CONTENT => "206 Partial Content",
+            Self::MULTI_STATUS => "207 Multi-Status",
+            Self::ALREADY_REPORTED => "208 Already Reported",
+            Self::IM_USED => "226 IM Used",
+            Self::MULTIPLE_CHOICES => "300 Multiple Choices",
+            Self::MOVED_PERMANENTLY => "301 Moved Permanently",
+            Self::FOUND => "302 Found",
+            Self::SEE_OTHER => "303 See Other",
+            Self::NOT_MODIFIED => "304 Not Modified",
+            Self::TEMPORARY_REDIRECT => "307 Temporary Redirect",
+            Self::PERMANENT_REDIRECT => "308 Permanent Redirect",
+            Self::BAD_REQUEST => "400 Bad Request",
+            Self::UNAUTHORIZED => "401 Unauthorized",
+            Self::PAYMENT_REQUIRED => "402 Payment Required",
+            Self::FORBIDDEN => "403 Forbidden",
+            Self::NOT_FOUND => "404 Not Found",
+            Self::METHOD_NOT_ALLOWED => "405 Method Not Allowed",
+            Self::NOT_ACCEPTABLE => "406 Not Acceptable",
+            Self::PROXY_AUTHENTICATION_REQUIRED => "407 Proxy Authentication Required",
+            Self::REQUEST_TIMEOUT => "408 Request Timeout",
+            Self::CONFLICT => "409 Conflict",
+            Self::GONE => "410 Gone",
+            Self::LENGTH_REQUIRED => "411 Length Required",
+            Self::PRECONDITION_FAILED => "412 Precondition Failed",
+            Self::CONTENT_TOO_LARGE => "413 Content Too Large",
+            Self::URI_TOO_LONG => "414 URI Too Long",
+            Self::UNSUPPORTED_MEDIA_TYPE => "415 Unsupported Media Type",
+            Self::RANGE_NOT_SATISFIABLE => "416 Range Not Satisfiable",
+            Self::EXPECTATION_FAILED => "417 Expectation Failed",
+            Self::IM_A_TEAPOT => "418 I'm a teapot",
+            Self::MISDIRECTED_REQUEST => "421 Misdirected Request",
+            Self::UNPROCESSABLE_CONTENT => "422 Unprocessable Content",
+            Self::LOCKED => "423 Locked",
+            Self::FAILED_DEPENDENCY => "424 Failed Dependency",
+            Self::TOO_EARLY => "425 Too Early",
+            Self::UPGRADE_REQUIRED => "426 Upgrade Required",
+            Self::PRECONDITION_REQUIRED => "428 Precondition Required",
+            Self::TOO_MANY_REQUESTS => "429 Too Many Requests",
+            Self::REQUEST_HEADER_FIELDS_TOO_LARGE => "431 Request Header Fields Too Large",
+            Self::UNAVAILABLE_FOR_LEGAL_REASONS => "451 Unavailable For Legal Reasons",
+            Self::INTERNAL_SERVER_ERROR => "500 Internal Server Error",
+            Self::NOT_IMPLEMENTED => "501 Not Implemented",
+            Self::BAD_GATEWAY => "502 Bad Gateway",
+            Self::SERVICE_UNAVAILABLE => "503 Service Unavailable",
+            Self::GATEWAY_TIMEOUT => "504 Gateway Timeout",
+            Self::HTTP_VERSION_NOT_SUPPORTED => "505 HTTP Version Not Supported",
+            Self::VARIANT_ALSO_NEGOTIATES => "506 Variant Also Negotiates",
+            Self::INSUFFICIENT_STORAGE => "507 Insufficient Storage",
+            Self::LOOP_DETECTED => "508 Loop Detected",
+            Self::NOT_EXTENDED => "510 Not Extended",
+            Self::NETWORK_AUTHENTICATION_REQUIRED => "511 Network Authentication Required",
+            item => {
+                todo!("custom code for {item:?}")
+            }
+        }
+    }
 }
 
 pub type ResponseBody = Box<dyn std::io::Read + Send>;

@@ -5,6 +5,9 @@ use std::net::TcpStream;
 
 pub mod http;
 
+#[cfg(feature = "server")]
+pub mod server;
+
 fn write_request<T: std::io::Read, S: std::io::Write>(
     request: &http::Request<'_, T>,
     mut stream: S,
