@@ -1,24 +1,25 @@
+use std::borrow::Cow;
+
 pub struct Request<'a, T> {
     pub method: Method<'a>,
-    pub root: &'a str,
-    pub path: &'a str,
-    pub headers: &'a Headers<'a>,
-    pub content: T,
+    pub path: Cow<'a, str>,
+    pub headers: Headers<'a>,
+    pub body: T,
 }
 
 pub type RequestNoBody<'a> = Request<'a, std::io::Empty>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct Method<'a>(pub &'a str);
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Method<'a>(pub Cow<'a, str>);
 
 impl Method<'static> {
-    pub const GET: Self = Method("GET");
-    pub const HEAD: Self = Method("HEAD");
-    pub const POST: Self = Method("POST");
-    pub const PUT: Self = Method("PUT");
-    pub const PATCH: Self = Method("PATCH");
-    pub const CONNECT: Self = Method("CONNECT");
-    pub const TRACE: Self = Method("TRACE");
+    pub const GET: Self = Method(Cow::Borrowed("GET"));
+    pub const HEAD: Self = Method(Cow::Borrowed("HEAD"));
+    pub const POST: Self = Method(Cow::Borrowed("POST"));
+    pub const PUT: Self = Method(Cow::Borrowed("PUT"));
+    pub const PATCH: Self = Method(Cow::Borrowed("PATCH"));
+    pub const CONNECT: Self = Method(Cow::Borrowed("CONNECT"));
+    pub const TRACE: Self = Method(Cow::Borrowed("TRACE"));
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -181,12 +182,12 @@ pub struct Response<'a> {
 }
 
 #[derive(Clone, Debug)]
-pub struct Headers<'a>(pub std::borrow::Cow<'a, str>);
+pub struct Headers<'a>(pub Cow<'a, str>);
 
 impl Headers<'static> {
     #[must_use]
     pub fn empty() -> Headers<'static> {
-        Headers(std::borrow::Cow::Borrowed(""))
+        Headers(Cow::Borrowed(""))
     }
 
     /// # Errors
@@ -198,9 +199,11 @@ impl Headers<'static> {
 
     #[must_use]
     pub fn from_string(on: String) -> Headers<'static> {
-        Headers(std::borrow::Cow::Owned(on))
+        Headers(Cow::Owned(on))
     }
+}
 
+impl<'a> Headers<'a> {
     #[must_use]
     pub fn iter(&self) -> HeaderIter<'_> {
         HeaderIter(self.0.lines())

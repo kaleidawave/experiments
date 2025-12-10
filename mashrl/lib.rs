@@ -11,21 +11,19 @@ fn write_request<T: std::io::Read, S: std::io::Write>(
 ) -> Result<S, Box<dyn std::error::Error>> {
     let http::Request {
         method,
-        root,
         path,
         headers,
-        content: _,
+        body: _,
     } = request;
 
-    let method: &str = method.0;
+    let method: &str = &method.0;
 
     let base = format!(
-        "{method} /{path} http/1.1\r\n\
-	Host: {root}\r\n\
-	Connection: close\r\n"
+        "{method} /{path} HTTP/1.1\r\n"
     );
 
     stream.write_all(base.as_bytes())?;
+    // TODO should not be empty
     if !headers.0.is_empty() {
         stream.write_all(headers.0.as_bytes())?;
         stream.write_all(b"\r\n")?;
@@ -39,10 +37,12 @@ fn write_request<T: std::io::Read, S: std::io::Write>(
 fn initiate_stream_tls<T: std::io::Read>(
     request: &http::Request<'_, T>,
 ) -> Result<TlsStream<TcpStream>, Box<dyn std::error::Error>> {
-    let url = format!("{root}:443", root = request.root);
+    let root = request.headers.iter().find_map(|(key, value)| (key.eq_ignore_ascii_case("host")).then_some(value)).unwrap();
+    let port = 443;
+    let url = format!("{root}:{port}");
     let tcp_stream = TcpStream::connect(url)?;
     let connector = TlsConnector::new()?;
-    let tls_stream = connector.connect(request.root, tcp_stream)?;
+    let tls_stream = connector.connect(&root, tcp_stream)?;
     write_request(request, tls_stream)
 }
 
@@ -60,14 +60,15 @@ fn initiate_stream_tls<T: std::io::Read>(
 pub fn make_get_request(
     root: &str,
     path: &str,
-    headers: &http::Headers<'_>,
+    mut headers: http::Headers<'_>,
 ) -> Result<http::Response<'static>, Box<dyn std::error::Error>> {
+    headers.append("Host", root);
+    headers.append("Connection", "Close");
     let request = http::Request {
         method: http::Method::GET,
-        root,
-        path,
+        path: std::borrow::Cow::Borrowed(path),
         headers,
-        content: std::io::empty(),
+        body: std::io::empty(),
     };
     make_request(request)
 }
@@ -79,7 +80,7 @@ pub fn make_request<T: std::io::Read + Send>(
     mut request: http::Request<'_, T>,
 ) -> Result<http::Response<'static>, Box<dyn std::error::Error>> {
     let mut stream = initiate_stream_tls(&request)?;
-    let _out = std::io::copy(&mut request.content, &mut stream)?;
+    let _out = std::io::copy(&mut request.body, &mut stream)?;
     parse_http_response(stream)
 
     // TODO monomorphism will 2x this...
