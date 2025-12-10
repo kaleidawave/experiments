@@ -1,9 +1,9 @@
 #[cfg(feature = "decompress")]
 fn main() {
-    use mashrl::{HTTP, make_get_request};
+    use mashrl::{http, make_get_request};
     use std::io::Read;
 
-    let mut response = make_get_request("httpbin.org", "gzip", &HTTP::Headers::empty()).unwrap();
+    let mut response = make_get_request("httpbin.org", "gzip", http::Headers::empty()).unwrap();
 
     eprintln!("Code {code}", code = response.code.0);
 

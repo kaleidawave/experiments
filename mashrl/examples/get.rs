@@ -1,8 +1,8 @@
-use mashrl::{HTTP, make_get_request};
+use mashrl::{http, make_get_request};
 use std::io::Read;
 
 fn main() {
-    let mut response = make_get_request("httpbin.org", "get", &HTTP::Headers::empty()).unwrap();
+    let mut response = make_get_request("httpbin.org", "get", http::Headers::empty()).unwrap();
 
     eprintln!("Code {code}", code = response.code.0);
 

@@ -18,9 +18,7 @@ fn write_request<T: std::io::Read, S: std::io::Write>(
 
     let method: &str = &method.0;
 
-    let base = format!(
-        "{method} /{path} HTTP/1.1\r\n"
-    );
+    let base = format!("{method} /{path} HTTP/1.1\r\n");
 
     stream.write_all(base.as_bytes())?;
     // TODO should not be empty
@@ -37,12 +35,16 @@ fn write_request<T: std::io::Read, S: std::io::Write>(
 fn initiate_stream_tls<T: std::io::Read>(
     request: &http::Request<'_, T>,
 ) -> Result<TlsStream<TcpStream>, Box<dyn std::error::Error>> {
-    let root = request.headers.iter().find_map(|(key, value)| (key.eq_ignore_ascii_case("host")).then_some(value)).unwrap();
+    let root = request
+        .headers
+        .iter()
+        .find_map(|(key, value)| (key.eq_ignore_ascii_case("host")).then_some(value))
+        .unwrap();
     let port = 443;
     let url = format!("{root}:{port}");
     let tcp_stream = TcpStream::connect(url)?;
     let connector = TlsConnector::new()?;
-    let tls_stream = connector.connect(&root, tcp_stream)?;
+    let tls_stream = connector.connect(root, tcp_stream)?;
     write_request(request, tls_stream)
 }
 
@@ -63,7 +65,7 @@ pub fn make_get_request(
     mut headers: http::Headers<'_>,
 ) -> Result<http::Response<'static>, Box<dyn std::error::Error>> {
     headers.append("Host", root);
-    headers.append("Connection", "Close");
+    headers.append("Connection", "close");
     let request = http::Request {
         method: http::Method::GET,
         path: std::borrow::Cow::Borrowed(path),

@@ -203,7 +203,7 @@ impl Headers<'static> {
     }
 }
 
-impl<'a> Headers<'a> {
+impl Headers<'_> {
     #[must_use]
     pub fn iter(&self) -> HeaderIter<'_> {
         HeaderIter(self.0.lines())
@@ -214,6 +214,7 @@ impl<'a> Headers<'a> {
         buffer.push_str(key);
         buffer.push_str(": ");
         buffer.push_str(value);
+        buffer.push_str("\r\n");
     }
 }
 
