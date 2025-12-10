@@ -5,9 +5,11 @@ use super::http;
 
 use std::{
     borrow::Cow,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::TcpListener,
 };
+
+pub use native_tls::Identity;
 
 pub struct LocalHost {
     port: u16,
@@ -64,7 +66,7 @@ pub type Body<'a> = Box<dyn std::io::Read + Send + 'a>;
 pub fn open_server(
     port: impl std::net::ToSocketAddrs,
     configuration: ServerConfiguration,
-    callback: impl for<'a> Fn(http::Request<'a, Body<'a>>) -> http::Response<'a>,
+    callback: impl for<'a> Fn(http::Request<'a, Body<'a>>) -> http::Response<'static>,
 ) {
     let listener = TcpListener::bind(port).expect("could not open listener on port");
 
@@ -85,9 +87,10 @@ pub fn open_server(
         let method;
         let path;
 
-        let mut transfer_encoding_range = None;
-        let mut content_encoding_range = None;
-        let mut _content_length = 0;
+        let mut transfer_encoding_range: Option<std::ops::Range<usize>> = None;
+        let mut content_encoding_range: Option<std::ops::Range<usize>> = None;
+        // Not sure what the default value should be here
+        let mut content_length: u64 = 0;
 
         // Parse response
         {
@@ -135,11 +138,10 @@ pub fn open_server(
                     break;
                 }
 
-                // octets!!!?
                 if let Some(value) = line.strip_prefix("Content-Length: ")
-                    && let Ok(value) = u64::from_str_radix(value, 8)
+                    && let Ok(value) = <u64 as std::str::FromStr>::from_str(value)
                 {
-                    _content_length = value;
+                    content_length = value;
                 }
 
                 if line.starts_with("Transfer-Encoding: ") {
@@ -148,7 +150,7 @@ pub fn open_server(
 
                     // Chunked responses should not be limited
                     if line.contains("chunked") {
-                        _content_length = u64::MAX;
+                        content_length = u64::MAX;
                     }
                 }
 
@@ -159,9 +161,8 @@ pub fn open_server(
             }
         }
 
-        #[allow(unused_mut)]
-        let reference = stream.get_ref();
-        let mut reader: Body<'_> = Box::new(reference.try_clone().unwrap());
+        let mut reader: Body<'_> =
+            Box::new(std::io::Read::by_ref(&mut stream).take(content_length));
 
         // Add transformations to reader dependending on flags
         {
