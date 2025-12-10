@@ -1,4 +1,4 @@
-use mashrl::HTTP::ChunkedReader;
+use mashrl::http::ChunkedReader;
 use std::io::Read;
 
 #[test]
