@@ -38,37 +38,27 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    # TEMP
-    env:
-      GH_TOKEN: ${{ github.token }}
-
     steps:
       - id: checkout
         uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: kaleidawave/release-downloader@main
-        with:
-          items: kaleidawave/crates-release-gh-action@assets[crates-release]
-
-      - name: Update version
-        id: update-version
-        run: crates-release change-version patch
-        working-directory: ${{ matrix.library }}
 
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
 
-      - run: cargo publish --allow-dirty
-        working-directory: ${{ matrix.library }}
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+      - uses: kaleidawave/crates-release-gh-action@improvements
+        id: update-version
+        with:
+          crates-token: ${{ steps.auth.outputs.token }}
+          version: patch
+          working-directory: ${{ matrix.library }}
 
       - name: Push updated Cargo.toml
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -u .
+          git add -u
           git commit -m "Release: ${{ steps.update-version.outputs.mashrl }}"
           git push origin ${{ steps.checkout.outputs.ref }}
-        env:
-          GH_TOKEN: ${{ github.token }}
