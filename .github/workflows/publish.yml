@@ -30,7 +30,7 @@ jobs:
 
     - name: Get QBDI (linux)
       if: ${{ matrix.os == 'ubuntu-latest' }}
-      run: dpkg -i QBDI-*-*-X86_64.deb
+      run: sudo dpkg -i QBDI-*-*-X86_64.deb
     
     - name: Get QBDI (macos)
       if: ${{ matrix.os == 'macos-latest' }}
