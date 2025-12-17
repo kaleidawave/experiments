@@ -60,5 +60,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -u
-          git commit -m "Release: ${{ steps.update-version.outputs.mashrl }}"
+          git commit -m "Release: ${{ steps.update-version.outputs.new-versions-description }}"
           git push origin ${{ steps.checkout.outputs.ref }}
