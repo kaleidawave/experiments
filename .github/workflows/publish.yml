@@ -1,0 +1,116 @@
+name: Check experiment
+
+on:
+  push
+
+jobs:
+  check:
+    # runs-on: ubuntu-latest
+    runs-on: macos-latest
+
+    strategy: { matrix: { project: [benchmarking-tool] } }
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    
+    - name: Check
+      run: cargo check
+      working-directory: ${{ matrix.project }}
+
+    - name: Get QBDI
+      run: |
+        curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-osx-AARCH64.pkg -L > QBDI.pkg
+        file QBDI.pkg
+        installer -pkg QBDI.pkg -target ~
+
+    - name: Build binary, example and QBDI
+      working-directory: ${{ matrix.project }}
+      run: |
+        cargo build
+        mv target/debug/benchmark .
+
+        cargo build --example iterations
+        mv target/debug/examples/iterations .
+        
+        bash build-qbdi.sh
+        mv qbdi/build/libqbdi_tracer.dylib .
+
+        ls
+
+        # Test
+        ./benchmark qbdi iterations 10
+        ./benchmark qbdi iterations 100
+        ./benchmark qbdi iterations 1000
+
+    # - name: Lint
+    #   run: cargo clippy
+    #   working-directory: ${{ matrix.project }}
+
+  publish-assets:
+    if: false
+
+    needs: check
+
+    permissions: write-all
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        binary: [benchmarking-tool]
+        include:
+        - os: windows-latest
+          platform-name: x86_64-pc-windows
+          executable-extension: ".exe"
+        - os: ubuntu-latest
+          platform-name: x86_64-unknown-linux
+        - os: macos-latest
+          platform-name: aarch64-apple-darwin
+
+    runs-on: ${{ matrix.os }}
+
+    env:
+      PROFILE: dev
+      OUT: target/debug
+      GH_RELEASE: assets
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Set variables
+        id: information
+        shell: bash
+        run: |
+          echo "GITHUB_RUN_DATE=$(TZ="Europe/London" date +"%Y-%m-%d %T")" >> "$GITHUB_OUTPUT"
+          echo "GIT_LAST_COMMIT=$(git log -n 1 --format="%H")" >> "$GITHUB_OUTPUT"
+          IFS='~' read -r project example <<< '${{ matrix.binary }}'
+          echo "WORKING_DIRECTORY=$project" >> "$GITHUB_OUTPUT"
+          echo "PROJECT_NAME=$project" >> "$GITHUB_OUTPUT"
+          if [ -n "$example" ]; then
+            echo "BUILD_SPECIFIER=--example $example" >> "$GITHUB_OUTPUT"
+            echo "ASSET_PATH=${{ env.OUT }}/examples/$example${{ matrix.executable-extension }}" >> "$GITHUB_OUTPUT"
+            echo "ASSET_NAME=$example" >> "$GITHUB_OUTPUT"
+          else
+            echo "BUILD_SPECIFIER=" >> "$GITHUB_OUTPUT"
+            echo "ASSET_PATH=${{ env.OUT }}/$project${{ matrix.executable-extension }}" >> "$GITHUB_OUTPUT"
+            echo "ASSET_NAME=$project" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build binary
+        working-directory: ${{ steps.information.outputs.WORKING_DIRECTORY }}
+        run: cargo build ${{ steps.information.outputs.BUILD_SPECIFIER }} --profile ${{ env.PROFILE }}
+        env:
+          GITHUB_RUN_DATE: ${{ steps.information.outputs.GITHUB_RUN_DATE }}
+          GIT_LAST_COMMIT: ${{ steps.information.outputs.GIT_LAST_COMMIT }}
+
+      - name: Publish binary
+        working-directory: ${{ steps.information.outputs.WORKING_DIRECTORY }}
+        shell: bash
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: |
+          FROM='${{ steps.information.outputs.ASSET_PATH }}'
+          TO='${{ steps.information.outputs.ASSET_NAME }}-${{ matrix.platform-name }}${{ matrix.executable-extension }}'
+          LABEL="${{ steps.information.outputs.PROJECT_NAME }}-$TO"
+          mv $FROM $TO
+          gh release upload $GH_RELEASE "$TO#$LABEL" --clobber
