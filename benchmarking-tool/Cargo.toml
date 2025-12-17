@@ -8,6 +8,7 @@ name = "benchmark"
 path = "main.rs"
 
 [dependencies]
+rustc-demangle = "0.1.26"
 
-[target.linux.dependencies]
-perf-event-open = "0.4.2"
+# [target.unix.dependencies]
+# perf-event-open = "0.4.2"

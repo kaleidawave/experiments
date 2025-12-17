@@ -1,6 +1,11 @@
+#![allow(unused)]
+
 mod utilities;
 
-use std::process::{Command, Stdio, ExitStatus};
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 use utilities::ArgumentIter;
 
@@ -10,7 +15,7 @@ struct RunData {
     #[cfg(unix)]
     pub instructions: usize,
     #[cfg(unix)]
-    pub memory_usage: usize
+    pub memory_usage: usize,
 }
 
 #[derive(Debug)]
@@ -18,7 +23,7 @@ struct Benchmark {
     command: String,
     arguments: Vec<String>,
     pub(crate) total_elapsed: Duration,
-    runs: Vec<RunData>
+    runs: Vec<RunData>,
 }
 
 impl Benchmark {
@@ -35,161 +40,112 @@ impl Benchmark {
     }
 }
 
-#[cfg(unix)]
-fn measure(mut command: Command) -> Result<(RunData, ExitStatus), ()> {
-    use perf_event_open::config::{Cpu, Opts, Proc, SampleOn, Size};
-    use perf_event_open::count::Counter;
-    use perf_event_open::event::hw::Hardware;
-
-    // Count retired instructions on current process, all CPUs.
-    let event = Hardware::Instr;
-    let target = (Proc::CURRENT, Cpu::ALL);
-
-    let mut opts = Opts::default();
-    opts.sample_on = SampleOn::Freq(1000); // 1000 samples per second.
-    opts.sample_format.user_stack = Some(Size(8)); // Dump 8-bytes user stack in sample.
-
-    let counter = Counter::new(event, target, opts).unwrap();
-    let sampler = counter.sampler(10).unwrap(); // Allocate 2^10 pages to store samples.
-
-    let instrs = counter.stat().unwrap().count;
-    println!("{} instructions retired", instrs);
-
-    for it in sampler.iter() {
-        println!("{:-?}", it);
-    }
-
-    let now = Instant::now();
-    counter.enable().unwrap(); // Start the counter.
-    let exit_status = command.spawn().expect("could not spawn command").wait().expect("command not started?");
-    let duration = now.elapsed();
-    counter.disable().unwrap(); // Stop the counter.
-    let instructions = counter.stat().unwrap().count;
-
-    let data = RunData {
-        duration,
-        instructions,
-        // TODO
-        memory_usage: 0
-    };
-
-    Ok((data, exit_status))
-}
-
-#[cfg(not(unix))]
-fn measure(mut command: Command) -> Result<(RunData, ExitStatus), ()> {
-    let now = Instant::now();
-    let exit_status = command
-        .spawn()
-        .expect("could not spawn command")
-        .wait()
-        .expect("command not started?");
-    let duration = now.elapsed();
-
-    let data = RunData {
-        duration
-    };
-    Ok((data, exit_status))
-}
-
 fn main() {
-    let mut to_run = {
-        let mut to_run: Vec<Benchmark> = Vec::new();
-        let command = std::env::args().nth(1).unwrap();
-        let mut flat_arguments = ArgumentIter::new(&command);
-        
-        let mut current_command = flat_arguments.next().unwrap();
-        let mut current_arguments = Vec::new();
+    let mut args = std::env::args().skip(1);
+    let kind = args.next();
+    let kind = kind.as_deref().unwrap_or("help");
 
-        while let Some(item) = flat_arguments.next() {
-            if let "," | "\n" = &*item {
-                let next_command = flat_arguments.next().unwrap();
-                let command = std::mem::replace(&mut current_command, next_command);
-                let arguments = std::mem::take(&mut current_arguments);
-                let benchmark = Benchmark {
-                    command: command.into_owned(),
-                    arguments,
-                    total_elapsed: Duration::default(),
-                    runs: Vec::default()
-                };
-                to_run.push(benchmark);
-            } else {
-                current_arguments.push(item.into_owned());
-            }
+    match kind {
+        "--info" | "help" => {
+            println!("benchmarking-tool");
+            println!("run 'qbdi', 'sde' or 'time'");
         }
-        let benchmark = Benchmark {
-            command: current_command.into_owned(),
-            arguments: current_arguments,
-            total_elapsed: Duration::default(),
-            runs: Vec::default()
-        };
-        to_run.push(benchmark);
-        to_run
-    };
-
-
-    // TODO clear afterwards?
-    println!("running {count} commands", count = to_run.len());
-
-    let allow_non_zero_exit_codes = true;
-
-    let mut running = true;
-
-    while running {
-        for to_run in to_run.iter_mut() {
-            // Future: do we need to create the command each time.
-            // can we run a command twice?
-            let (name, arguments) = to_run.name_and_arguments();
-            let mut command = Command::new(name);
-            for argument in arguments {
-                command.arg(argument);
-            }
-            command.stdout(Stdio::null());
-            command.stderr(Stdio::null());
-
-            let (data, exit_code) = measure(command).unwrap();
-
-            to_run.total_elapsed += data.duration;
-
-            // TODO test exit code here
-            if !allow_non_zero_exit_codes && !exit_code.success() {
-                panic!("command non-zero exit");
-            }
+        "qbdi" => {
+            run_qbdi(args);
         }
-
-        // TODO after some count..
-        running = false;
+        "sde" => {
+            todo!()
+        }
+        "time" => {
+            todo!()
+        }
+        arg => {
+            println!("unknown {arg}");
+        }
     }
+}
 
+fn run_qbdi(mut args: impl Iterator<Item = String>) {
+    let mut command = Command::new(args.next().unwrap());
 
-    println!("Benchmarks:");
-
-    to_run.sort_unstable_by_key(|result| u128::MAX - result.duration_nanos());
-
-    for result in &to_run {
-        let (name, arguments) = result.name_and_arguments();
-        let mut arguments = utilities::List::new(arguments);
-        arguments.with_prefix("with");
-        println!("  {name}{arguments} took");
-        println!("     {elapsed:?}", elapsed = result.elapsed());
-    }
-
-    if let [fastest, others @ ..] = to_run.as_slice()
-        && !others.is_empty()
+    #[cfg(target_os = "macos")]
     {
-        {
-            let (name, arguments) = fastest.name_and_arguments();
-            let mut arguments = utilities::List::new(arguments);
-            arguments.with_prefix("with");
-            println!("{name}{arguments} ran",);
+        let library_name = "libqbdi_tracer.dylib";
+        let root = std::env::current_exe().unwrap();
+        let library = root.parent().unwrap().join(library_name);
+        if !library.is_file() {
+            eprintln!("{library_name:?} not adjacent to {root:?}. {library} does not exist", library=library.display());
+            return;
         }
+        command.env("DYLD_BIND_AT_LAUNCH", "1");
+        command.env("DYLD_INSERT_LIBRARIES", &library.display().to_string());
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        let library_name = "libqbdi_tracer.so";
+        let root = std::env::current_exe().unwrap();
+        let library = root.parent().unwrap().join(library_name);
+        if !library.is_file() {
+            eprintln!("{library_name:?} not adjacent to {root:?}. {library} does not exist", library=library.display());
+            return;
+        }
+        command.env("LD_PRELOAD", &library.display().to_string());
+    }
 
-        for result in others {
-            let difference = fastest.duration_nanos() as f64 / result.duration_nanos() as f64;
-            let (name, arguments) = result.name_and_arguments();
-            let mut arguments = utilities::List::new(arguments);
-            arguments.with_prefix("with");
-            println!(" {difference}x faster than {name}{arguments}");
+    // TODO could extract things here
+    for arg in args {
+        let _ = command.arg(arg);
+    }
+
+    command.stdout(Stdio::piped());
+
+    let child = command.spawn().unwrap();
+
+    let mut content = BufReader::new(child.stdout.unwrap());
+
+    let mut items: HashMap<String, Vec<(String, usize)>> = HashMap::new();
+    for line in content.lines() {
+        let line = line.unwrap();
+        if let Some(rest) = line.strip_prefix("bm::") {
+            let Some((func, rest)) = rest.split_once('/') else {
+                // TODO not sure why some items do not finish?
+                continue;
+            };
+
+            let (kind, count) = rest.split_once('/').unwrap();
+            let Ok(count) = count.parse() else {
+                // TODO ...?
+                continue;
+            };
+            items
+                .entry(func.to_owned())
+                .or_default()
+                .push((kind.to_owned(), count));
+        } else {
+            println!("{line}");
         }
+    }
+
+    for (func, mut items) in items {
+        let func = format!("{func:#}", func = rustc_demangle::demangle(&func));
+        let func: &str = if let Some(rest) = func.strip_prefix('<') {
+            let (_, rhs) = rest.split_once(" as ").unwrap();
+            let (lhs, _) = rhs.split_once('>').unwrap();
+            lhs
+        } else {
+            &func
+        };
+        let bad_prefixes = &["std::", "core::", "alloc::", "_", "*", "OUTLINED_FUNCTION_"];
+        let skip = bad_prefixes.iter().any(|prefix| func.starts_with(prefix));
+        if skip {
+            continue;
+        }
+        print!("  {func}");
+        items.sort_unstable_by_key(|(_, value)| usize::MAX - value);
+        for (kind, count) in items {
+            print!(" [{kind}: {count}]");
+        }
+        println!();
     }
 }
