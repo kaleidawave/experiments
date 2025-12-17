@@ -93,11 +93,14 @@ fn run_qbdi(mut args: impl Iterator<Item = String>) {
         command.env("LD_PRELOAD", &library.display().to_string());
     }
 
+    // Work in progress
     let mut filter = true;
-    // TODO could extract things here
-    for arg in args {
+    let mut only: Option<String> = None;
+    while let Some(arg) = args.next() {
         if let "--qbdi-all" = arg.as_str() {
             filter = false;
+        } else if let "--qbdi-only" = arg.as_str() {
+            only = args.next();
         } else {
             let _ = command.arg(arg);
         }
@@ -144,7 +147,11 @@ fn run_qbdi(mut args: impl Iterator<Item = String>) {
             //     func
             // };
 
-            if filter {
+            if let Some(ref only) = only {
+                if &func != only {
+                    continue;
+                }
+            } else if filter {
                 let bad_prefixes = &["std::", "core::", "alloc::", "_", "*", "OUTLINED_FUNCTION_"];
                 let skip = bad_prefixes.iter().any(|prefix| func.starts_with(prefix));
                 if skip {
