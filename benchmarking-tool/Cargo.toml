@@ -8,7 +8,9 @@ name = "benchmark"
 path = "main.rs"
 
 [dependencies]
+json-builder-macro = "0.0.3"
 rustc-demangle = "0.1.26"
+sde-output-parser = { path = "sde-output-parser", version = "*" } 
 
 # [target.unix.dependencies]
 # perf-event-open = "0.4.2"
