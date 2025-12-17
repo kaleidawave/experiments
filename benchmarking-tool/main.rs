@@ -93,9 +93,14 @@ fn run_qbdi(mut args: impl Iterator<Item = String>) {
         command.env("LD_PRELOAD", &library.display().to_string());
     }
 
+    let mut filter = true;
     // TODO could extract things here
     for arg in args {
-        let _ = command.arg(arg);
+        if let "--qbdi-all" = arg.as_str() {
+            filter = false;
+        } else {
+            let _ = command.arg(arg);
+        }
     }
 
     command.stdout(Stdio::piped());
@@ -104,7 +109,16 @@ fn run_qbdi(mut args: impl Iterator<Item = String>) {
 
     let mut content = BufReader::new(child.stdout.unwrap());
 
-    let mut items: HashMap<String, Vec<(String, usize)>> = HashMap::new();
+    #[derive(Default)]
+    struct Item {
+        total: usize,
+        instruction_kind: Vec<(String, usize)>,
+    }
+
+    // TODO this seems highly inefficient
+    let mut items: HashMap<String, Item> = HashMap::new();
+
+    let mut total_count = 0;
     for line in content.lines() {
         let line = line.unwrap();
         if let Some(rest) = line.strip_prefix("bm::") {
@@ -118,33 +132,45 @@ fn run_qbdi(mut args: impl Iterator<Item = String>) {
                 // TODO ...?
                 continue;
             };
-            items
-                .entry(func.to_owned())
-                .or_default()
-                .push((kind.to_owned(), count));
+
+            total_count += count;
+
+            let func = format!("{func:#}", func = rustc_demangle::demangle(&func));
+            // let func: Sting = if let Some(rest) = func.strip_prefix('<') {
+            //     let (_, rhs) = rest.split_once(" as ").unwrap();
+            //     let (lhs, _) = rhs.split_once('>').unwrap();
+            //     formatlhs.to_owned()
+            // } else {
+            //     func
+            // };
+
+            if filter {
+                let bad_prefixes = &["std::", "core::", "alloc::", "_", "*", "OUTLINED_FUNCTION_"];
+                let skip = bad_prefixes.iter().any(|prefix| func.starts_with(prefix));
+                if skip {
+                    continue;
+                }
+            }
+
+            let item = items
+                .entry(func)
+                .or_default();
+
+            item.total += count;
+            item.instruction_kind.push((kind.to_owned(), count));
         } else {
             println!("{line}");
         }
     }
 
-    for (func, mut items) in items {
-        let func = format!("{func:#}", func = rustc_demangle::demangle(&func));
-        let func: &str = if let Some(rest) = func.strip_prefix('<') {
-            let (_, rhs) = rest.split_once(" as ").unwrap();
-            let (lhs, _) = rhs.split_once('>').unwrap();
-            lhs
-        } else {
-            &func
-        };
-        let bad_prefixes = &["std::", "core::", "alloc::", "_", "*", "OUTLINED_FUNCTION_"];
-        let skip = bad_prefixes.iter().any(|prefix| func.starts_with(prefix));
-        if skip {
-            continue;
-        }
-        print!("  {func}");
-        items.sort_unstable_by_key(|(_, value)| usize::MAX - value);
-        for (kind, count) in items {
-            print!(" [{kind}: {count}]");
+    let mut items: Vec<(String, Item)> = Vec::from_iter(items);
+    items.sort_unstable_by_key(|(_, value)| usize::MAX - value.total);
+
+    for (func, mut item) in items {
+        print!("{func} - {total} instructions", total=item.total);
+        item.instruction_kind.sort_unstable_by_key(|(_, value)| usize::MAX - value);
+        for (kind, count) in &item.instruction_kind {
+            print!(" ({kind}={count})");
         }
         println!();
     }

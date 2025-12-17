@@ -70,6 +70,7 @@ static const char *classify(const InstAnalysis *ia) {
 	if (ia->isBranch) return "branch";
 	if (ia->isCall)   return "call";
 	if (ia->isReturn) return "return";
+	if (ia->isCompare) return "compare";
 	if (ia->mayLoad || ia->mayStore) return "memory";
 	return ia->mnemonic;
 	// return "other";
