@@ -8,7 +8,11 @@ pub mod http;
 #[cfg(feature = "server")]
 pub mod server;
 
-fn write_request<T: std::io::Read, S: std::io::Write>(
+#[cfg(feature = "extras")]
+pub mod extras;
+
+/// Not the HTTP body (for some reason)
+fn write_method_path_and_headers<T: std::io::Read, S: std::io::Write>(
     request: &http::Request<'_, T>,
     mut stream: S,
 ) -> Result<S, Box<dyn std::error::Error>> {
@@ -24,11 +28,12 @@ fn write_request<T: std::io::Read, S: std::io::Write>(
     let base = format!("{method} /{path} HTTP/1.1\r\n");
 
     stream.write_all(base.as_bytes())?;
-    // TODO should not be empty
-    if !headers.0.is_empty() {
-        stream.write_all(headers.0.as_bytes())?;
-        stream.write_all(b"\r\n")?;
-    }
+    debug_assert!(
+        headers.is_valid(),
+        "Invalid headers {headers:?}",
+        headers = &headers.0
+    );
+    stream.write_all(headers.0.as_bytes())?;
     stream.write_all(b"\r\n")?;
 
     Ok(stream)
@@ -48,7 +53,7 @@ fn initiate_stream_tls<T: std::io::Read>(
     let tcp_stream = TcpStream::connect(url)?;
     let connector = TlsConnector::new()?;
     let tls_stream = connector.connect(root, tcp_stream)?;
-    write_request(request, tls_stream)
+    write_method_path_and_headers(request, tls_stream)
 }
 
 // fn initiate_stream_non_tls<T: std::io::Read>(
@@ -56,7 +61,7 @@ fn initiate_stream_tls<T: std::io::Read>(
 // ) -> Result<TcpStream, Box<dyn std::error::Error>> {
 //     let url = format!("{root}:443", root = request.root);
 //     let tcp_stream = TcpStream::connect(url)?;
-//     write_request(&request, tcp_stream)
+//     write_method_path_and_headers(&request, tcp_stream)
 // }
 
 /// # Errors

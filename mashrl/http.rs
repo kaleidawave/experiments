@@ -289,6 +289,11 @@ impl Headers<'_> {
         buffer.push_str(value);
         buffer.push_str("\r\n");
     }
+
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        self.0.is_empty() || self.0.ends_with("\r\n")
+    }
 }
 
 impl<T> FromIterator<(T, T)> for Headers<'static>
