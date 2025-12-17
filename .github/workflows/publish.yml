@@ -5,10 +5,18 @@ on:
 
 jobs:
   check:
-    # runs-on: ubuntu-latest
-    runs-on: macos-latest
+    runs-on: ${{ matrix.os }}
 
-    strategy: { matrix: { project: [benchmarking-tool] } }
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest] # windows-latest,
+        project: [benchmarking-tool]
+        include:
+        - os: ubuntu-latest
+          dynamic-library: libqbdi_tracer.so
+        - os: macos-latest
+          dynamic-library: libqbdi_tracer.dylib
 
     steps:
     - uses: actions/checkout@v4
@@ -16,11 +24,16 @@ jobs:
     - uses: jwlawson/actions-setup-cmake@v2
       with: { cmake-version: '3.31.7' }
     
-    # - name: Check
-    #   run: cargo check
-    #   working-directory: ${{ matrix.project }}
+    - name: Check
+      run: cargo check
+      working-directory: ${{ matrix.project }}
 
-    - name: Get QBDI
+    - name: Get QBDI (linux)
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+      run: dpkg -i QBDI-*-*-X86_64.deb
+    
+    - name: Get QBDI (macos)
+      if: ${{ matrix.os == 'macos-latest' }}
       run: |
         curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-osx-AARCH64.pkg -L > QBDI.pkg
         file QBDI.pkg
@@ -36,14 +49,19 @@ jobs:
         mv target/debug/examples/iterations .
         
         bash build-qbdi.sh
-        mv qbdi/build/libqbdi_tracer.dylib .
+        mv 'qbdi/build/${{ matrix.dynamic-library }}' .
 
-        ls
+    - name: Run iterations
+      working-directory: ${{ matrix.project }}
+      run: |
+        for i in {0..3}
+        do
+          i=$((10**i))
 
-        # Test
-        ./benchmark qbdi iterations 10
-        ./benchmark qbdi iterations 100
-        ./benchmark qbdi iterations 1000
+          echo "::group::benchmark ./iterations $i"
+          ./benchmark qbdi ./iterations $i
+          echo "::endgroup::"
+        done
 
     # - name: Lint
     #   run: cargo clippy
