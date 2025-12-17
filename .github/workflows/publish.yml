@@ -22,7 +22,7 @@ jobs:
       run: |
         curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-osx-AARCH64.pkg -L > QBDI.pkg
         file QBDI.pkg
-        installer -pkg QBDI.pkg -target ~
+        sudo installer -pkg QBDI.pkg -target ~
 
     - name: Build binary, example and QBDI
       working-directory: ${{ matrix.project }}
