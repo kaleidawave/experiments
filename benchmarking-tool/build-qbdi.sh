@@ -1,5 +1,4 @@
-cd qbdi
-mkdir build
-cd build
-cmake ..
-make
+mkdir qbdi/build
+cd qbdi/build
+
+cmake .. && make
