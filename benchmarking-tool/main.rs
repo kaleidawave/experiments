@@ -1,13 +1,7 @@
-#![allow(unused)]
-
 mod tools;
 mod utilities;
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
-use std::process::{Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant};
 
 use utilities::{Direction, Sorting};
 
@@ -151,5 +145,125 @@ impl BenchmarkInput {
         this.arguments = args.collect();
 
         this
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Entry {
+    pub name: String,
+    pub total: u32,
+    /// TODO maybe fixed
+    pub entries: Vec<(String, u32)>,
+}
+
+pub fn print_results(
+    mut rows: Vec<Entry>,
+    total_count: usize,
+    output_format: OutputFormat,
+    sorting: Option<utilities::Sorting>,
+    limit: usize,
+) {
+    use crate::utilities::count_with_seperator;
+    use std::borrow::Cow;
+
+    const MAX_WIDTH: usize = 100;
+    const WHITESPACE: &str = if let Ok(result) = str::from_utf8(&[b' '; MAX_WIDTH]) {
+        result
+    } else {
+        ""
+    };
+
+    if let Some(ref sort) = sorting {
+        match sort.field.as_str() {
+            "name" => {
+                rows.sort_unstable_by(|lhs, rhs| sort.direction.compare(&lhs.name, &rhs.name));
+            }
+            "total" => {
+                rows.sort_unstable_by(|lhs, rhs| sort.direction.compare(&lhs.total, &rhs.total));
+            }
+            field => {
+                eprintln!("unknown field {field:?}");
+            }
+        }
+    }
+
+    let skip = if let Some(utilities::Sorting {
+        direction: utilities::Direction::Descending,
+        ..
+    }) = sorting
+    {
+        rows.len().saturating_sub(limit)
+    } else {
+        0
+    };
+
+    let rows = &rows[skip..];
+    let rows = &rows[..std::cmp::min(rows.len(), limit)];
+
+    match output_format {
+        OutputFormat::Plain => {
+            let max_name_width = {
+                let mut max_name_width = 0;
+                for row in rows {
+                    max_name_width = std::cmp::max(max_name_width, row.name.len());
+                }
+                std::cmp::min(max_name_width, MAX_WIDTH)
+            };
+
+            // for (func, mut item) in rows {
+            //     print!("{func} - {total} instructions", total = item.total);
+            //     item.instruction_kind
+            //         .sort_unstable_by_key(|(_, value)| u32::MAX - value);
+            //     for (kind, count) in &item.instruction_kind {
+            //         print!(" ({kind}={count})");
+            //     }
+            //     println!();
+            // }
+
+            println!(
+                "Run {total} instructions",
+                total = count_with_seperator(total_count as usize)
+            );
+            for row in rows {
+                let name: Cow<'_, str> = if row.name.len() > MAX_WIDTH {
+                    Cow::Owned(format!("{prefix}...", prefix = &row.name[..MAX_WIDTH - 3]))
+                } else {
+                    Cow::Borrowed(&row.name)
+                };
+                let fill = &WHITESPACE[..max_name_width - name.len()];
+
+                // TODO wip
+                print!("{name}{fill}");
+                print!(
+                    " total:  {count}",
+                    count = count_with_seperator(row.total as usize)
+                );
+                for (name, count) in &row.entries {
+                    print!(
+                        " {name}:  {count}",
+                        count = count_with_seperator(*count as usize)
+                    );
+                }
+                println!();
+            }
+        }
+        OutputFormat::JSON => {
+            let mut buf = String::from("[");
+            for row in rows {
+                if buf.len() > 1 {
+                    buf.push(',');
+                }
+                buf.push_str(&json_builder_macro::json! {
+                    name: row.name.as_str(),
+                    total: row.total,
+                    data: row.entries
+                });
+            }
+            buf.push(']');
+            println!("{buf}");
+        }
+        format => {
+            todo!("output format '{format:?}'");
+        }
     }
 }

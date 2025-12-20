@@ -1,10 +1,3 @@
-pub const MAX_WIDTH: usize = 100;
-pub const WHITESPACE: &str = if let Ok(result) = str::from_utf8(&[b' '; MAX_WIDTH]) {
-    result
-} else {
-    ""
-};
-
 #[derive(Clone, Debug)]
 pub struct Sorting {
     pub field: String,

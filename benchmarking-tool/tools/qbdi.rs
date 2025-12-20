@@ -1,11 +1,8 @@
-use crate::{OutputFormat, utilities};
+use crate::Entry;
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
-
-use utilities::{MAX_WIDTH, WHITESPACE};
 
 pub fn run_qbdi(input: super::BenchmarkInput) {
     let mut command = if cfg!(target_os = "windows") {
@@ -80,7 +77,7 @@ pub fn run_qbdi(input: super::BenchmarkInput) {
 
     let mut child = command.spawn().unwrap();
 
-    let mut content = BufReader::new(child.stdout.take().unwrap());
+    let content = BufReader::new(child.stdout.take().unwrap());
 
     #[derive(Default)]
     struct Item {
@@ -142,95 +139,20 @@ pub fn run_qbdi(input: super::BenchmarkInput) {
 
     child.wait().unwrap();
 
-    let mut rows: Vec<(String, Item)> = Vec::from_iter(items);
-    if let Some(ref sort) = input.sort {
-        match sort.field.as_str() {
-            "name" => {
-                rows.sort_unstable_by(|lhs, rhs| sort.direction.compare(&lhs.0, &rhs.0));
-            }
-            "total" => {
-                rows.sort_unstable_by(|lhs, rhs| {
-                    sort.direction.compare(&lhs.1.total, &rhs.1.total)
-                });
-            }
-            field => {
-                eprintln!("unknown field {field:?}");
-            }
-        }
-    }
+    let rows: Vec<_> = items
+        .into_iter()
+        .map(|(name, item)| Entry {
+            name,
+            total: item.total,
+            entries: item.instruction_kind,
+        })
+        .collect();
 
-    let skip = if let Some(utilities::Sorting {
-        direction: utilities::Direction::Descending,
-        ..
-    }) = input.sort
-    {
-        rows.len().saturating_sub(input.limit)
-    } else {
-        0
-    };
-
-    let rows = &rows[skip..];
-    let rows = &rows[..std::cmp::min(rows.len(), input.limit)];
-
-    // TODO abstract ?
-    match input.format {
-        OutputFormat::Plain => {
-            let max_name_width = {
-                let mut max_name_width = 0;
-                for (name, _) in rows {
-                    max_name_width = std::cmp::max(max_name_width, name.len());
-                }
-                std::cmp::min(max_name_width, MAX_WIDTH)
-            };
-
-            // for (func, mut item) in rows {
-            //     print!("{func} - {total} instructions", total = item.total);
-            //     item.instruction_kind
-            //         .sort_unstable_by_key(|(_, value)| u32::MAX - value);
-            //     for (kind, count) in &item.instruction_kind {
-            //         print!(" ({kind}={count})");
-            //     }
-            //     println!();
-            // }
-
-            println!(
-                "Run {total} instructions",
-                total = utilities::count_with_seperator(total_count as usize)
-            );
-            for (section, count) in rows {
-                let section: Cow<'_, str> = if section.len() > MAX_WIDTH {
-                    Cow::Owned(format!("{prefix}...", prefix = &section[..MAX_WIDTH - 3]))
-                } else {
-                    Cow::Borrowed(section)
-                };
-                let fill = &WHITESPACE[..max_name_width - section.len()];
-
-                // TODO wip
-                print!("{section}{fill}");
-                print!(
-                    " total:  {total}",
-                    total = utilities::count_with_seperator(count.total as usize)
-                );
-                // TODO more here
-                println!();
-            }
-        }
-        OutputFormat::JSON => {
-            let mut buf = String::from("[");
-            for (section, count) in rows {
-                if buf.len() > 1 {
-                    buf.push(',');
-                }
-                buf.push_str(&json_builder_macro::json! {
-                    name: section.as_str(),
-                    total: count.total,
-                });
-            }
-            buf.push(']');
-            println!("{buf}");
-        }
-        format => {
-            todo!("output format '{format:?}'");
-        }
-    }
+    crate::print_results(
+        rows,
+        total_count as usize,
+        input.format,
+        input.sort,
+        input.limit,
+    );
 }
