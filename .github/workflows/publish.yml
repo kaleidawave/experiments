@@ -10,13 +10,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest] # windows-latest,
-        project: [benchmarking-tool]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         include:
         - os: ubuntu-latest
           dynamic-library: libqbdi_tracer.so
         - os: macos-latest
           dynamic-library: libqbdi_tracer.dylib
+        - os: windows-latest
+          dynamic-library: libqbdi_tracer.dll
+          executable-extension: '.exe'
 
     steps:
     - uses: actions/checkout@v4
@@ -26,66 +28,91 @@ jobs:
     
     - name: Check
       run: cargo check
-      working-directory: ${{ matrix.project }}
+      working-directory: benchmarking-tool
 
     - name: Get QBDI (linux)
       if: ${{ matrix.os == 'ubuntu-latest' }}
-      run: sudo dpkg -i QBDI-*-*-X86_64.deb
+      run:
+        curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-ubuntu24.04-X86_64.deb > QBDI.deb 
+        sudo dpkg -i QBDI.deb
     
     - name: Get QBDI (macos)
       if: ${{ matrix.os == 'macos-latest' }}
       run: |
         curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-osx-AARCH64.pkg -L > QBDI.pkg
-        file QBDI.pkg
         sudo installer -pkg QBDI.pkg -target ~
-
+    
+    - name: Get QBDI (windows)
+      if: ${{ matrix.os == 'windows-latest' }}
+      run: |
+        curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-windows-X86_64.exe -L > QBDI.exe
+        ./QBDI.exe
+        
     - name: Build binary, example and QBDI
-      working-directory: ${{ matrix.project }}
+      working-directory: benchmarking-tool
+      shell: bash
       run: |
         cargo build
         mv target/debug/benchmark .
-
-        cargo build --example iterations
-        mv target/debug/examples/iterations .
         
         bash build-qbdi.sh
         mv 'qbdi/build/${{ matrix.dynamic-library }}' .
 
-    - name: Run iterations
-      working-directory: ${{ matrix.project }}
+    - name: Build and run iterations
+      working-directory: benchmarking-tool
+      shell: bash
       run: |
+        cargo build --example iterations
+        mv target/debug/examples/iterations${{ matrix.executable-extension }} .
+
         for i in {0..3}
         do
           i=$((10**i))
 
-          echo "::group::benchmark ./iterations $i"
-          ./benchmark qbdi ./iterations $i
+          echo "::group::benchmark${{ matrix.executable-extension }} qbdi ./iterations${{ matrix.executable-extension }} $i"
+          ./benchmark${{ matrix.executable-extension }} qbdi ./iterations${{ matrix.executable-extension }} $i
           echo "::endgroup::"
         done
 
-    # - name: Lint
-    #   run: cargo clippy
-    #   working-directory: ${{ matrix.project }}
+    - name: Setup SDE binaries
+      if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
+      uses: petarpetrovt/setup-sde@v3.0
+      with:
+        environmentVariableName: SDE_PATH # default value is `SDE_PATH`
+        sdeVersion: 9.58.0 # possible values: 9.58.0 (default), 9.33.0
+
+    - name: Run SDE (linux or windows)
+      if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
+      run:
+        for i in {0..3}
+        do
+          i=$((10**i))
+
+          echo "::group::benchmark${{ matrix.executable-extension }} sde ./iterations${{ matrix.executable-extension }} $i"
+          ./benchmark${{ matrix.executable-extension }} sde ./iterations${{ matrix.executable-extension }} $i
+          echo "::endgroup::"
+        done
 
   publish-assets:
-    if: false
-
     needs: check
 
     permissions: write-all
 
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        binary: [benchmarking-tool]
         include:
         - os: windows-latest
           platform-name: x86_64-pc-windows
           executable-extension: ".exe"
+          dynamic-library: libqbdi_tracer.dll
         - os: ubuntu-latest
           platform-name: x86_64-unknown-linux
+          dynamic-library: libqbdi_tracer.so
         - os: macos-latest
           platform-name: aarch64-apple-darwin
+          dynamic-library: libqbdi_tracer.dylib
 
     runs-on: ${{ matrix.os }}
 
@@ -98,39 +125,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Set variables
-        id: information
-        shell: bash
-        run: |
-          echo "GITHUB_RUN_DATE=$(TZ="Europe/London" date +"%Y-%m-%d %T")" >> "$GITHUB_OUTPUT"
-          echo "GIT_LAST_COMMIT=$(git log -n 1 --format="%H")" >> "$GITHUB_OUTPUT"
-          IFS='~' read -r project example <<< '${{ matrix.binary }}'
-          echo "WORKING_DIRECTORY=$project" >> "$GITHUB_OUTPUT"
-          echo "PROJECT_NAME=$project" >> "$GITHUB_OUTPUT"
-          if [ -n "$example" ]; then
-            echo "BUILD_SPECIFIER=--example $example" >> "$GITHUB_OUTPUT"
-            echo "ASSET_PATH=${{ env.OUT }}/examples/$example${{ matrix.executable-extension }}" >> "$GITHUB_OUTPUT"
-            echo "ASSET_NAME=$example" >> "$GITHUB_OUTPUT"
-          else
-            echo "BUILD_SPECIFIER=" >> "$GITHUB_OUTPUT"
-            echo "ASSET_PATH=${{ env.OUT }}/$project${{ matrix.executable-extension }}" >> "$GITHUB_OUTPUT"
-            echo "ASSET_NAME=$project" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Build binary
-        working-directory: ${{ steps.information.outputs.WORKING_DIRECTORY }}
-        run: cargo build ${{ steps.information.outputs.BUILD_SPECIFIER }} --profile ${{ env.PROFILE }}
-        env:
-          GITHUB_RUN_DATE: ${{ steps.information.outputs.GITHUB_RUN_DATE }}
-          GIT_LAST_COMMIT: ${{ steps.information.outputs.GIT_LAST_COMMIT }}
+        working-directory: benchmarking-tool
+        run: cargo build --profile ${{ env.PROFILE }}
 
       - name: Publish binary
-        working-directory: ${{ steps.information.outputs.WORKING_DIRECTORY }}
+        working-directory: benchmarking-tool
         shell: bash
         env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
         run: |
-          FROM='${{ steps.information.outputs.ASSET_PATH }}'
-          TO='${{ steps.information.outputs.ASSET_NAME }}-${{ matrix.platform-name }}${{ matrix.executable-extension }}'
-          LABEL="${{ steps.information.outputs.PROJECT_NAME }}-$TO"
+          bash build-qbdi.sh
+          mv 'qbdi/build/${{ matrix.dynamic-library }}' .
+
+          FROM='${{ env.OUT }}/benchmarking-tool${{ matrix.executable-extension }}'
+          TO='benchmark-${{ matrix.platform-name }}${{ matrix.executable-extension }}'
           mv $FROM $TO
-          gh release upload $GH_RELEASE "$TO#$LABEL" --clobber
+          gh release upload $GH_RELEASE "$TO" --clobber
+          gh release upload $GH_RELEASE "${{ matrix.dynamic-library }}" --clobber
+
