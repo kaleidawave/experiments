@@ -4,7 +4,10 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 
-pub fn run_qbdi(input: super::BenchmarkInput) {
+pub fn run_qbdi(
+    request: crate::CommandRequest,
+    options: crate::ToolOptions,
+) -> Result<crate::ToolOutput, ()> {
     let mut command = if cfg!(target_os = "windows") {
         let root = std::env::current_exe().unwrap();
         let mut command = {
@@ -15,7 +18,7 @@ pub fn run_qbdi(input: super::BenchmarkInput) {
                     "{preloader_name:?} not adjacent to {root:?}. {preloader} does not exist",
                     preloader = preloader.display()
                 );
-                return;
+                return Err(());
             }
             Command::new(preloader.display().to_string())
         };
@@ -27,51 +30,53 @@ pub fn run_qbdi(input: super::BenchmarkInput) {
                     "{library_name:?} not adjacent to {root:?}. {library} does not exist",
                     library = library.display()
                 );
-                return;
+                return Err(());
             }
             command.arg(library.display().to_string());
         }
 
-        command.arg(input.program);
-        command.args(input.arguments);
+        command.arg(request.program);
+        command.args(request.arguments);
         command
     } else {
-        let mut command = Command::new(input.program);
-        command.args(input.arguments);
+        let mut command = Command::new(request.program);
+
+        #[cfg(target_os = "macos")]
+        {
+            let library_name = "libqbdi_tracer.dylib";
+            let root = std::env::current_exe().unwrap();
+            let library = root.parent().unwrap().join(library_name);
+            if !library.is_file() {
+                eprintln!(
+                    "{library_name:?} not adjacent to {root:?}. {library} does not exist",
+                    library = library.display()
+                );
+                return Err(());
+            }
+            command.env("DYLD_BIND_AT_LAUNCH", "1");
+            command.env("DYLD_INSERT_LIBRARIES", library.display().to_string());
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            dbg!("adding linux stuff");
+            let library_name = "libqbdi_tracer.so";
+            let root = std::env::current_exe().unwrap();
+            let library = root.parent().unwrap().join(library_name);
+            if !library.is_file() {
+                eprintln!(
+                    "{library_name:?} not adjacent to {root:?}. {library} does not exist",
+                    library = library.display()
+                );
+                return Err(());
+            }
+            command.env("LD_BIND_NOW", "1");
+            command.env("LD_PRELOAD", library.display().to_string());
+        }
+
+        command.args(request.arguments);
         command
     };
-
-    #[cfg(target_os = "macos")]
-    {
-        let library_name = "libqbdi_tracer.dylib";
-        let root = std::env::current_exe().unwrap();
-        let library = root.parent().unwrap().join(library_name);
-        if !library.is_file() {
-            eprintln!(
-                "{library_name:?} not adjacent to {root:?}. {library} does not exist",
-                library = library.display()
-            );
-            return;
-        }
-        command.env("DYLD_BIND_AT_LAUNCH", "1");
-        command.env("DYLD_INSERT_LIBRARIES", library.display().to_string());
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let library_name = "libqbdi_tracer.so";
-        let root = std::env::current_exe().unwrap();
-        let library = root.parent().unwrap().join(library_name);
-        if !library.is_file() {
-            eprintln!(
-                "{library_name:?} not adjacent to {root:?}. {library} does not exist",
-                library = library.display()
-            );
-            return;
-        }
-        command.env("LD_BIND_NOW", "1");
-        command.env("LD_PRELOAD", library.display().to_string());
-    }
 
     command.stdout(Stdio::piped());
 
@@ -88,7 +93,7 @@ pub fn run_qbdi(input: super::BenchmarkInput) {
     // TODO this seems highly inefficient
     let mut items: HashMap<String, Item> = HashMap::new();
 
-    let mut total_count = 0;
+    let mut total = 0;
     for line in content.lines() {
         let line = line.unwrap();
         if let Some(rest) = line.strip_prefix("bm::") {
@@ -103,7 +108,7 @@ pub fn run_qbdi(input: super::BenchmarkInput) {
                 continue;
             };
 
-            total_count += count;
+            total += count;
 
             let func = format!("{func:#}", func = rustc_demangle::demangle(func));
             // let func: Sting = if let Some(rest) = func.strip_prefix('<') {
@@ -120,7 +125,7 @@ pub fn run_qbdi(input: super::BenchmarkInput) {
             //     }
             // } else
 
-            if input.skip_internals {
+            if options.skip_internals {
                 let bad_prefixes = &["std::", "core::", "alloc::", "_", "*", "OUTLINED_FUNCTION_"];
                 let skip = bad_prefixes.iter().any(|prefix| func.starts_with(prefix));
                 if skip {
@@ -139,20 +144,14 @@ pub fn run_qbdi(input: super::BenchmarkInput) {
 
     child.wait().unwrap();
 
-    let rows: Vec<_> = items
+    let symbols: Vec<_> = items
         .into_iter()
         .map(|(name, item)| Entry {
-            name,
+            symbol_name: name,
             total: item.total,
             entries: item.instruction_kind,
         })
         .collect();
 
-    crate::print_results(
-        rows,
-        total_count as usize,
-        input.format,
-        input.sort,
-        input.limit,
-    );
+    Ok(crate::ToolOutput::SymbolInstructionCounts { total, symbols })
 }

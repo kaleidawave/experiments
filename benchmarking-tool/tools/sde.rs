@@ -3,8 +3,14 @@ use std::process::{Command, Stdio};
 
 pub const TEMP_FILE: &str = "sde-out.txt";
 
-pub fn run_sde(input: super::BenchmarkInput) {
-    let file_path: &str = input.keep.as_deref().unwrap_or(TEMP_FILE);
+pub fn run_sde(
+    request: crate::CommandRequest,
+    options: crate::ToolOptions,
+) -> Result<crate::ToolOutput, ()> {
+    let file_path: &str = options.as_deref().unwrap_or(TEMP_FILE);
+
+    // TODO hmm
+    let blocks = 50;
 
     {
         let mut command = Command::new("sde");
@@ -13,12 +19,11 @@ pub fn run_sde(input: super::BenchmarkInput) {
             file_path,
             "-mix_filter_no_shared_libs",
             "-top_blocks",
-            // TODO hmm
-            &(2 * input.limit).to_string(),
+            &blocks.to_string(),
             "--",
         ]);
-        command.arg(input.program);
-        command.args(input.arguments);
+        command.arg(request.program);
+        command.args(request.arguments);
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
 
@@ -30,9 +35,9 @@ pub fn run_sde(input: super::BenchmarkInput) {
 
     let out = BufReader::new(file);
 
-    let rows = sde_output_parser::parse(out, input.skip_internals);
+    let rows = sde_output_parser::parse(out, options.skip_internals);
 
-    let rows: Vec<_> = rows
+    let symbols: Vec<_> = rows
         .into_iter()
         .map(|(name, item)| crate::Entry {
             name,
@@ -47,11 +52,11 @@ pub fn run_sde(input: super::BenchmarkInput) {
         })
         .collect();
 
-    let total_count: usize = rows.iter().fold(0, |acc, row| acc + row.total as usize);
-
-    crate::print_results(rows, total_count, input.format, input.sort, input.limit);
+    let total: usize = rows.iter().fold(0, |acc, row| acc + row.total as usize);
 
     if input.keep.is_none() {
         std::fs::remove_file(file_path).unwrap();
     }
+
+    Ok(crate::ToolOutput::SymbolInstructionCounts { total, symbols })
 }

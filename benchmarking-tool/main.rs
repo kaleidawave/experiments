@@ -1,8 +1,5 @@
-mod tools;
-mod utilities;
-
+use benchmarking_tool::{CommandRequest, Entry, ToolOptions, ToolOutput, tools, utilities};
 use std::collections::HashMap;
-
 use utilities::{Direction, Sorting};
 
 fn main() {
@@ -18,14 +15,50 @@ fn main() {
             println!("run 'qbdi', 'sde', 'perf-events' or 'time'");
         }
         "qbdi" => {
-            tools::qbdi::run_qbdi(input);
+            let request = CommandRequest {
+                program: input.program,
+                arguments: input.arguments,
+            };
+            let options = ToolOptions {
+                keep: input.keep,
+                skip_internals: input.skip_internals,
+            };
+            let result = tools::qbdi::run_qbdi(request, options).unwrap();
+            match result {
+                ToolOutput::SymbolInstructionCounts { symbols, total } => print_results(
+                    symbols,
+                    total as usize,
+                    input.format,
+                    input.sort,
+                    input.limit,
+                ),
+                _ => todo!(),
+            }
         }
         "time" => {
             todo!()
         }
         #[cfg(target_arch = "x86")]
         "sde" => {
-            tools::qbdi::run_sde(input);
+            let request = CommandRequest {
+                program: input.program,
+                arguments: input.arguments,
+            };
+            let options = ToolOptions {
+                keep: input.keep,
+                skip_internals: input.skip_internals,
+            };
+            let result = tools::sde::run_sde(request, options).unwrap();
+            match result {
+                ToolOutput::SymbolInstructionCounts { symbols, total } => print_results(
+                    symbols,
+                    total as usize,
+                    input.format,
+                    input.sort,
+                    input.limit,
+                ),
+                _ => todo!(),
+            }
         }
         #[cfg(target_family = "unix")]
         "perf-events" => {
@@ -148,14 +181,6 @@ impl BenchmarkInput {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Entry {
-    pub name: String,
-    pub total: u32,
-    /// TODO maybe fixed
-    pub entries: Vec<(String, u32)>,
-}
-
 pub fn print_results(
     mut rows: Vec<Entry>,
     total_count: usize,
@@ -163,8 +188,8 @@ pub fn print_results(
     sorting: Option<utilities::Sorting>,
     limit: usize,
 ) {
-    use crate::utilities::count_with_seperator;
     use std::borrow::Cow;
+    use utilities::count_with_seperator;
 
     const MAX_WIDTH: usize = 100;
     const WHITESPACE: &str = if let Ok(result) = str::from_utf8(&[b' '; MAX_WIDTH]) {
@@ -176,7 +201,9 @@ pub fn print_results(
     if let Some(ref sort) = sorting {
         match sort.field.as_str() {
             "name" => {
-                rows.sort_unstable_by(|lhs, rhs| sort.direction.compare(&lhs.name, &rhs.name));
+                rows.sort_unstable_by(|lhs, rhs| {
+                    sort.direction.compare(&lhs.symbol_name, &rhs.symbol_name)
+                });
             }
             "total" => {
                 rows.sort_unstable_by(|lhs, rhs| sort.direction.compare(&lhs.total, &rhs.total));
@@ -205,7 +232,7 @@ pub fn print_results(
             let max_name_width = {
                 let mut max_name_width = 0;
                 for row in rows {
-                    max_name_width = std::cmp::max(max_name_width, row.name.len());
+                    max_name_width = std::cmp::max(max_name_width, row.symbol_name.len());
                 }
                 std::cmp::min(max_name_width, MAX_WIDTH)
             };
@@ -225,15 +252,18 @@ pub fn print_results(
                 total = count_with_seperator(total_count as usize)
             );
             for row in rows {
-                let name: Cow<'_, str> = if row.name.len() > MAX_WIDTH {
-                    Cow::Owned(format!("{prefix}...", prefix = &row.name[..MAX_WIDTH - 3]))
+                let symbol_name: Cow<'_, str> = if row.symbol_name.len() > MAX_WIDTH {
+                    Cow::Owned(format!(
+                        "{prefix}...",
+                        prefix = &row.symbol_name[..MAX_WIDTH - 3]
+                    ))
                 } else {
-                    Cow::Borrowed(&row.name)
+                    Cow::Borrowed(&row.symbol_name)
                 };
-                let fill = &WHITESPACE[..max_name_width - name.len()];
+                let fill = &WHITESPACE[..max_name_width - symbol_name.len()];
 
                 // TODO wip
-                print!("{name}{fill}");
+                print!("{symbol_name}{fill}");
                 print!(
                     " total:  {count}",
                     count = count_with_seperator(row.total as usize)
@@ -254,9 +284,9 @@ pub fn print_results(
                     buf.push(',');
                 }
                 buf.push_str(&json_builder_macro::json! {
-                    name: row.name.as_str(),
+                    symbol_name: row.symbol_name.as_str(),
                     total: row.total,
-                    data: row.entries
+                    kinds: row.entries
                 });
             }
             buf.push(']');

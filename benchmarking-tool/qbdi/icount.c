@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 
 QBDIPRELOAD_INIT;
 
@@ -99,7 +100,7 @@ int qbdipreload_on_exit(int status) {
 	for (int i = 0; i < HASH_SIZE; i++) {
 		Entry *e = table[i];
 		while (e) {
-			printf("bm::%s/%s/%llu\n", e->symbol, e->kind, e->count);
+			printf("bm::%s/%s/%" PRIu64 "\n", e->symbol, e->kind, e->count);
 			e = e->next;
 		}
 	}

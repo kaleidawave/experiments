@@ -6,5 +6,3 @@ pub mod perf_events;
 
 #[cfg(target_arch = "x86")]
 pub mod sde;
-
-use super::BenchmarkInput;

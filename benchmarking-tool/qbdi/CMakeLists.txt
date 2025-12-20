@@ -14,7 +14,7 @@ endif()
 
 if(WIN32)
     # Windows: no Preload, no arch-suffixed package
-    find_package(QBDI::${QBDI_ARCH} REQUIRED)
+    find_package(QBDI${QBDI_ARCH} REQUIRED)
 
     add_library(qbdi_tracer SHARED icount.c)
     target_link_libraries(qbdi_tracer
