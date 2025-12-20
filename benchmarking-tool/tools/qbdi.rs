@@ -59,7 +59,6 @@ pub fn run_qbdi(
 
         #[cfg(target_os = "linux")]
         {
-            dbg!("adding linux stuff");
             let library_name = "libqbdi_tracer.so";
             let root = std::env::current_exe().unwrap();
             let library = root.parent().unwrap().join(library_name);
@@ -96,6 +95,10 @@ pub fn run_qbdi(
     let mut total = 0;
     for line in content.lines() {
         let line = line.unwrap();
+
+        #[cfg(target_os = "linux")]
+        eprintln!("TEMP linux: {line}");
+
         if let Some(rest) = line.strip_prefix("bm::") {
             let Some((func, rest)) = rest.split_once('/') else {
                 // TODO not sure why some items do not finish?

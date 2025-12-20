@@ -4,5 +4,5 @@ pub mod wall_clock;
 #[cfg(target_family = "unix")]
 pub mod perf_events;
 
-#[cfg(target_arch = "x86")]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub mod sde;

@@ -38,7 +38,7 @@ fn main() {
         "time" => {
             todo!()
         }
-        #[cfg(target_arch = "x86")]
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         "sde" => {
             let request = CommandRequest {
                 program: input.program,
