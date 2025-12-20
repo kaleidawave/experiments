@@ -1,87 +1,18 @@
-use std::borrow::Cow;
+pub const MAX_WIDTH: usize = 100;
+pub const WHITESPACE: &str = if let Ok(result) = str::from_utf8(&[b' '; MAX_WIDTH]) {
+    result
+} else {
+    ""
+};
 
-pub struct ArgumentIter<'a> {
-    on: &'a str,
-    last: usize,
-}
-
-impl<'a> ArgumentIter<'a> {
-    pub fn new(on: &'a str) -> Self {
-        Self {
-            on: on.trim(),
-            last: 0,
-        }
-    }
-}
-
-impl<'a> Iterator for ArgumentIter<'a> {
-    type Item = Cow<'a, str>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let start = self.last;
-        if let Some((idx, matched)) = self.on[self.last..]
-            .match_indices(&[' ', '\'', '"', ',', '\n'])
-            .next()
-        {
-            let value = match matched {
-                " " => {
-                    let end = self.last + idx;
-                    self.last += idx + matched.len();
-                    Some(Cow::Borrowed(self.on[start..end].trim()))
-                }
-                // TODO wip
-                "," | "\n" => {
-                    if idx == 0 {
-                        self.last += idx + 1;
-                        Some(Cow::Borrowed(","))
-                    } else {
-                        let end = self.last + idx;
-                        self.last += idx;
-                        Some(Cow::Borrowed(self.on[start..end].trim()))
-                    }
-                }
-                "\"" | "\'" => {
-                    let rest = &self.on[self.last..][1..];
-                    let (idx2, _) = rest
-                        .match_indices(matched)
-                        .filter(|(idx, _)| !rest[..*idx].ends_with('\\'))
-                        .next()
-                        .expect("no end to quoted item");
-
-                    self.last += idx + idx2 + 2;
-                    let content = &rest[..idx2];
-                    if content.contains('\\') {
-                        Some(Cow::Owned(content.replace('\\', "")))
-                    } else {
-                        Some(Cow::Borrowed(content))
-                    }
-                }
-                item => unreachable!("{item}"),
-            };
-            if let Some(rest) = self.on.get(self.last..) {
-                let spaces = rest
-                    .find(|chr: char| matches!(chr, ' ' | '\t' | '\r'))
-                    .unwrap_or_default();
-                self.last += spaces;
-            }
-            value
-        } else if start < self.on.len() {
-            self.last = self.on.len();
-            Some(Cow::Borrowed(&self.on[start..]))
-        } else {
-            None
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Sorting<'a> {
-    pub field: &'a str,
+#[derive(Clone, Debug)]
+pub struct Sorting {
+    pub field: String,
     pub direction: Direction,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum Direction {
+pub enum Direction {
     Ascending,
     Descending,
 }
@@ -94,52 +25,6 @@ impl Direction {
         } else {
             order
         }
-    }
-}
-
-pub(crate) fn to_denary(value: usize, seperator: &str) -> String {
-    if value == 0 {
-        return "0".to_owned();
-    }
-    let mut buf = String::new();
-    for i in (0..=value.ilog10()).rev() {
-        let j = (value / 10i32.pow(i) as usize) % 10;
-        buf.push(b"0123456789"[j] as char);
-        if i > 0 && i % 3 == 0 {
-            buf.push_str(seperator);
-        }
-    }
-    buf
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn arguments() {
-        let on = "this is a test! 'with' \"things in quotes\" see";
-        assert_eq!(
-            ArgumentIter::new(on).collect::<Vec<_>>(),
-            vec![
-                "this",
-                "is",
-                "a",
-                "test!",
-                "with",
-                "things in quotes",
-                "see"
-            ]
-        );
-    }
-
-    #[test]
-    fn escaping() {
-        let on = "testing 'escaping \\'' \"with \\\" quote\"";
-        assert_eq!(
-            ArgumentIter::new(on).collect::<Vec<_>>(),
-            vec!["testing", "escaping '", "with \" quote"]
-        );
     }
 }
 
@@ -162,7 +47,7 @@ where
     type Item = Vec<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.state.len() == 0 {
+        if self.state.is_empty() {
             return None;
         }
         let last = self.state.len() - 1;
@@ -207,7 +92,7 @@ where
     T: std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        if self.items.len() > 0 {
+        if !self.items.is_empty() {
             write!(f, "{prefix}", prefix = self.prefix)?;
         }
         for value in self.items.iter() {
@@ -215,4 +100,26 @@ where
         }
         Ok(())
     }
+}
+
+/// Used for printing numbers in SDE
+pub fn count_with_seperator(value: usize) -> String {
+    const NON_BREAKING_SPACE: &str = "\u{00A0}";
+
+    to_denary(value, NON_BREAKING_SPACE)
+}
+
+fn to_denary(value: usize, seperator: &str) -> String {
+    if value == 0 {
+        return "0".to_owned();
+    }
+    let mut buf = String::new();
+    for i in (0..=value.ilog10()).rev() {
+        let j = (value / 10i32.pow(i) as usize) % 10;
+        buf.push(b"0123456789"[j] as char);
+        if i > 0 && i % 3 == 0 {
+            buf.push_str(seperator);
+        }
+    }
+    buf
 }
