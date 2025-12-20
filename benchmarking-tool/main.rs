@@ -31,6 +31,7 @@ fn main() {
                     input.format,
                     input.sort,
                     input.limit,
+                    input.breakdown,
                 ),
                 _ => todo!(),
             }
@@ -56,6 +57,7 @@ fn main() {
                     input.format,
                     input.sort,
                     input.limit,
+                    input.breakdown,
                 ),
                 _ => todo!(),
             }
@@ -96,6 +98,8 @@ pub struct BenchmarkInput {
     pub keep: Option<String>,
     /// skip Rust internals
     pub skip_internals: bool,
+    /// include all inst
+    pub breakdown: bool,
 }
 
 impl BenchmarkInput {
@@ -112,6 +116,7 @@ impl BenchmarkInput {
             // ...
             keep: None,
             skip_internals: true,
+            breakdown: false,
         };
 
         let mut left_over: Option<String> = None;
@@ -159,6 +164,9 @@ impl BenchmarkInput {
                 "--all" => {
                     this.skip_internals = false;
                 }
+                "--breakdown" => {
+                    this.breakdown = true;
+                }
                 "--arg" => {
                     let next = args.next().unwrap();
                     let (name, values) = next.split_once('=').unwrap();
@@ -187,6 +195,7 @@ pub fn print_results(
     output_format: OutputFormat,
     sorting: Option<utilities::Sorting>,
     limit: usize,
+    breakdown: bool,
 ) {
     use std::borrow::Cow;
     use utilities::count_with_seperator;
@@ -268,11 +277,13 @@ pub fn print_results(
                     " total:  {count}",
                     count = count_with_seperator(row.total as usize)
                 );
-                for (name, count) in &row.entries {
-                    print!(
-                        " {name}:  {count}",
-                        count = count_with_seperator(*count as usize)
-                    );
+                if breakdown {
+                    for (name, count) in &row.entries {
+                        print!(
+                            " {name}:  {count}",
+                            count = count_with_seperator(*count as usize)
+                        );
+                    }
                 }
                 println!();
             }
@@ -283,11 +294,18 @@ pub fn print_results(
                 if buf.len() > 1 {
                     buf.push(',');
                 }
-                buf.push_str(&json_builder_macro::json! {
-                    symbol_name: row.symbol_name.as_str(),
-                    total: row.total,
-                    kinds: row.entries
-                });
+                if breakdown {
+                    buf.push_str(&json_builder_macro::json! {
+                        symbol_name: row.symbol_name.as_str(),
+                        total: row.total,
+                        kinds: row.entries
+                    });
+                } else {
+                    buf.push_str(&json_builder_macro::json! {
+                        symbol_name: row.symbol_name.as_str(),
+                        total: row.total
+                    });
+                }
             }
             buf.push(']');
             println!("{buf}");

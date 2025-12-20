@@ -7,7 +7,7 @@ pub fn run_sde(
     request: crate::CommandRequest,
     options: crate::ToolOptions,
 ) -> Result<crate::ToolOutput, ()> {
-    let file_path: &str = options.as_deref().unwrap_or(TEMP_FILE);
+    let file_path: &str = options.keep.as_deref().unwrap_or(TEMP_FILE);
 
     // TODO hmm
     let blocks = 50;
@@ -39,8 +39,8 @@ pub fn run_sde(
 
     let symbols: Vec<_> = rows
         .into_iter()
-        .map(|(name, item)| crate::Entry {
-            name,
+        .map(|(symbol_name, item)| crate::Entry {
+            symbol_name,
             total: item.total,
             entries: vec![
                 ("mem_read".to_owned(), item.mem_read),
@@ -52,9 +52,9 @@ pub fn run_sde(
         })
         .collect();
 
-    let total: usize = rows.iter().fold(0, |acc, row| acc + row.total as usize);
+    let total = symbols.iter().fold(0, |acc, row| acc + row.total);
 
-    if input.keep.is_none() {
+    if options.keep.is_none() {
         std::fs::remove_file(file_path).unwrap();
     }
 
