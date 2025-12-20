@@ -75,7 +75,7 @@ jobs:
           i=$((10**i))
 
           echo "::group::benchmark${{ matrix.executable-extension }} qbdi ./iterations${{ matrix.executable-extension }} $i"
-          ./benchmark${{ matrix.executable-extension }} qbdi ./iterations${{ matrix.executable-extension }} $i
+          ./benchmark${{ matrix.executable-extension }} qbdi --sort name ./iterations${{ matrix.executable-extension }} $i
           echo "::endgroup::"
         done
 
@@ -88,13 +88,14 @@ jobs:
 
     - name: Run SDE (linux or windows)
       if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
-      run:
+      shell: bash
+      run: |
         for i in {0..3}
         do
           i=$((10**i))
 
           echo "::group::benchmark${{ matrix.executable-extension }} sde ./iterations${{ matrix.executable-extension }} $i"
-          ./benchmark${{ matrix.executable-extension }} sde ./iterations${{ matrix.executable-extension }} $i
+          ./benchmark${{ matrix.executable-extension }} sde --sort name ./iterations${{ matrix.executable-extension }} $i
           echo "::endgroup::"
         done
 

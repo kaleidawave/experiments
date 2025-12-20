@@ -72,6 +72,7 @@ pub fn run_qbdi(input: super::BenchmarkInput) {
             );
             return;
         }
+        command.env("LD_BIND_NOW", "1");
         command.env("LD_PRELOAD", library.display().to_string());
     }
 
