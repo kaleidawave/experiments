@@ -8,8 +8,41 @@ use std::process::{Command, Stdio};
 use utilities::{MAX_WIDTH, WHITESPACE};
 
 pub fn run_qbdi(input: super::BenchmarkInput) {
-    let mut command = Command::new(input.program);
-    command.args(input.arguments);
+    let mut command = if cfg!(target_os = "windows") {
+        let root = std::env::current_exe().unwrap();
+        let mut command = {
+            let preloader_name = "QBDIWinPreloader.exe";
+            let preloader = root.parent().unwrap().join(preloader_name);
+            if !preloader.is_file() {
+                eprintln!(
+                    "{preloader_name:?} not adjacent to {root:?}. {preloader} does not exist",
+                    preloader = preloader.display()
+                );
+                return;
+            }
+            Command::new(preloader.display().to_string())
+        };
+        {
+            let library_name = "libqbdi_tracer.dll";
+            let library = root.parent().unwrap().join(library_name);
+            if !library.is_file() {
+                eprintln!(
+                    "{library_name:?} not adjacent to {root:?}. {library} does not exist",
+                    library = library.display()
+                );
+                return;
+            }
+            command.arg(library.display().to_string());
+        }
+
+        command.arg(input.program);
+        command.args(input.arguments);
+        command
+    } else {
+        let mut command = Command::new(input.program);
+        command.args(input.arguments);
+        command
+    };
 
     #[cfg(target_os = "macos")]
     {
