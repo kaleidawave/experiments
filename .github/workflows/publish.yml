@@ -33,7 +33,7 @@ jobs:
     - name: Get QBDI (linux)
       if: ${{ matrix.os == 'ubuntu-latest' }}
       run:
-        curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-ubuntu24.04-X86_64.deb > QBDI.deb 
+        curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-ubuntu24.04-X86_64.deb -L > QBDI.deb
         sudo dpkg -i QBDI.deb
     
     - name: Get QBDI (macos)
