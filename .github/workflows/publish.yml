@@ -73,7 +73,7 @@ jobs:
         getcap ${{ matrix.dynamic-library }}
         ls -l .
         chmod +x ${{ matrix.dynamic-library }}
-        LD_BIND_NOW=1 LD_PRELOAD=${{ matrix.dynamic-library }} ./iterations 10
+        LD_BIND_NOW=1 LD_PRELOAD="$(realpath ${{ matrix.dynamic-library }})" ./iterations 10
 
     - name: Run QBDI iterations
       working-directory: benchmarking-tool
@@ -94,9 +94,13 @@ jobs:
         environmentVariableName: SDE_PATH # default value is `SDE_PATH`
         sdeVersion: 9.58.0 # possible values: 9.58.0 (default), 9.33.0
 
-    # - name: sde-path-to-github-path
-    #   if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
-    #   run: echo "$SDE_PATH" >> $GITHUB_PATH
+    - name: sde-path-to-github-path
+      if: ${{ matrix.os == 'ubuntu-latest'}}
+      run: |
+        # echo "$SDE_PATH" >> $GITHUB_PATH
+        file "$SDE_PATH"
+        . "$SDE_PATH" --help
+        chmod +x "$SDE_PATH"
 
     - name: Run SDE (linux or windows)
       if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
