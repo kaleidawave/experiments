@@ -64,6 +64,7 @@ jobs:
 
     - name: Investigate QBDI (linux)
       if: ${{ matrix.os == 'ubuntu-latest' }}
+      working-directory: benchmarking-tool
       run: |
         getcap ${{ matrix.dynamic-library }}
         ls -l .
@@ -96,9 +97,9 @@ jobs:
         environmentVariableName: SDE_PATH # default value is `SDE_PATH`
         sdeVersion: 9.58.0 # possible values: 9.58.0 (default), 9.33.0
 
-    - name: sde-path-to-github-path
-      if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
-      run: echo "$SDE_PATH" >> $GITHUB_PATH
+    # - name: sde-path-to-github-path
+    #   if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
+    #   run: echo "$SDE_PATH" >> $GITHUB_PATH
 
     - name: Run SDE (linux or windows)
       if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
