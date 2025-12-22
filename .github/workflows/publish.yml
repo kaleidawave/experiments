@@ -47,10 +47,7 @@ jobs:
       run: |
         curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-windows-X86_64.exe -L > QBDI.exe
         ./QBDI.exe
-        mv "$(which qbdi-template-X86_64)/../QBDIWinPreloader.exe" .
-        ls "$(which qbdi-template-X86_64)/.." -r
-        cat "-DQBDI_DIR=$(which qbdi-template-X86_64)/../lib/cmake/QBDI"
-        cmake -SQ . -B build "-DQBDI_DIR=$(which qbdi-template-X86_64)/../lib/cmake/QBDI"
+        ls 'C:\Program Files'
         
     - name: Build binary, example and QBDI
       working-directory: benchmarking-tool
@@ -62,6 +59,13 @@ jobs:
         bash build-qbdi.sh
         mv 'qbdi/build/${{ matrix.dynamic-library }}' .
 
+    - name: Build iterations
+      working-directory: benchmarking-tool
+      shell: bash
+      run: |
+        cargo build --example iterations
+        mv target/debug/examples/iterations${{ matrix.executable-extension }} .
+
     - name: Investigate QBDI (linux)
       if: ${{ matrix.os == 'ubuntu-latest' }}
       working-directory: benchmarking-tool
@@ -70,13 +74,6 @@ jobs:
         ls -l .
         chmod +x ${{ matrix.dynamic-library }}
         LD_BIND_NOW=1 LD_PRELOAD=${{ matrix.dynamic-library }} ./iterations 10
-
-    - name: Build iterations
-      working-directory: benchmarking-tool
-      shell: bash
-      run: |
-        cargo build --example iterations
-        mv target/debug/examples/iterations${{ matrix.executable-extension }} .
 
     - name: Run QBDI iterations
       working-directory: benchmarking-tool
