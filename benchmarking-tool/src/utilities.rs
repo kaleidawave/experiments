@@ -42,3 +42,44 @@ fn to_denary(value: usize, seperator: &str) -> String {
     }
     buf
 }
+
+pub struct PairedWriter<W1, W2>(Option<W1>, Option<W2>);
+
+impl<W1, W2> PairedWriter<W1, W2> {
+    pub fn new_from_option(first: Option<W1>, second: Option<W2>) -> Option<Self> {
+        if first.is_some() || second.is_some() {
+            Some(Self(first, second))
+        } else {
+            None
+        }
+    }
+}
+
+impl<W1, W2> std::io::Write for PairedWriter<W1, W2>
+where
+    W1: std::io::Write,
+    W2: std::io::Write,
+{
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Some(first) = self.0.as_mut() {
+            let result = std::io::Write::write(first, buf)?;
+            if let Some(second) = self.1.as_mut() {
+                std::io::Write::write(second, buf)
+            } else {
+                Ok(result)
+            }
+        } else {
+            std::io::Write::write(self.1.as_mut().unwrap(), buf)
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if let Some(first) = self.0.as_mut() {
+            std::io::Write::flush(first)?;
+        }
+        if let Some(second) = self.1.as_mut() {
+            std::io::Write::flush(second)?;
+        }
+        Ok(())
+    }
+}

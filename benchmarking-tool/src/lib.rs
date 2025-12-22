@@ -1,9 +1,12 @@
 pub mod tools;
 pub mod utilities;
 
-pub struct CommandRequest {
-    pub program: String,
-    pub arguments: Vec<String>,
+use std::borrow::Cow;
+use std::ffi::OsStr;
+
+pub struct CommandRequest<'a> {
+    pub program: Cow<'a, OsStr>,
+    pub arguments: Vec<Cow<'a, OsStr>>,
 }
 
 /// TODO iterations, etc for time etc

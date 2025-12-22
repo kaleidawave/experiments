@@ -1,6 +1,9 @@
-use benchmarking_tool::{CommandRequest, Entry, ToolOptions, ToolOutput, tools, utilities};
 use std::collections::HashMap;
-use utilities::{Direction, Sorting};
+use std::ffi::OsString;
+use std::io::Write;
+
+use benchmarking_tool::{CommandRequest, Entry, ToolOptions, ToolOutput, tools, utilities};
+use utilities::{Direction, PairedWriter, Sorting};
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -9,6 +12,17 @@ fn main() {
 
     let input = BenchmarkInput::from_arguments(args);
 
+    let writer = PairedWriter::new_from_option(
+        input.write_to_stdout.then(|| std::io::stdout()),
+        input.write_results_to.map(|path| {
+            let path = std::path::Path::new(&path);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::File::create(path).unwrap()
+        }),
+    );
+
     match tool {
         "--info" | "help" => {
             println!("benchmarking-tool");
@@ -16,8 +30,8 @@ fn main() {
         }
         "qbdi" => {
             let request = CommandRequest {
-                program: input.program,
-                arguments: input.arguments,
+                program: input.program.into(),
+                arguments: input.arguments.into_iter().map(Into::into).collect(),
             };
             let options = ToolOptions {
                 keep: input.keep,
@@ -26,24 +40,26 @@ fn main() {
             let result = tools::qbdi::run_qbdi(request, options).unwrap();
             match result {
                 ToolOutput::SymbolInstructionCounts { symbols, total } => print_results(
+                    &mut writer.expect("--quiet must have --write-results-to"),
                     symbols,
                     total as usize,
                     input.format,
                     input.sort,
                     input.limit,
                     input.breakdown,
-                ),
+                )
+                .unwrap(),
                 _ => todo!(),
             }
         }
         "time" => {
             todo!()
         }
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64", debug_assertions))]
         "sde" => {
             let request = CommandRequest {
-                program: input.program,
-                arguments: input.arguments,
+                program: input.program.into(),
+                arguments: input.arguments.into_iter().map(Into::into).collect(),
             };
             let options = ToolOptions {
                 keep: input.keep,
@@ -52,13 +68,15 @@ fn main() {
             let result = tools::sde::run_sde(request, options).unwrap();
             match result {
                 ToolOutput::SymbolInstructionCounts { symbols, total } => print_results(
+                    &mut writer.expect("--quiet must have --write-results-to"),
                     symbols,
                     total as usize,
                     input.format,
                     input.sort,
                     input.limit,
                     input.breakdown,
-                ),
+                )
+                .unwrap(),
                 _ => todo!(),
             }
         }
@@ -88,8 +106,8 @@ pub struct BenchmarkInput {
     /// plain, JSON, markdown, csv
     pub format: OutputFormat,
     // ...
-    pub program: String,
-    pub arguments: Vec<String>,
+    pub program: OsString,
+    pub arguments: Vec<OsString>,
     // ...
     pub generic_arguments: HashMap<String, Vec<String>>,
 
@@ -98,8 +116,11 @@ pub struct BenchmarkInput {
     pub keep: Option<String>,
     /// skip Rust internals
     pub skip_internals: bool,
-    /// include all inst
+    /// include all instruction kinds
     pub breakdown: bool,
+    // things
+    pub write_results_to: Option<String>,
+    pub write_to_stdout: bool,
 }
 
 impl BenchmarkInput {
@@ -109,7 +130,7 @@ impl BenchmarkInput {
             sort: None,
             format: OutputFormat::default(),
             // ...
-            program: String::new(),
+            program: OsString::new(),
             arguments: Vec::new(),
             // ...
             generic_arguments: HashMap::new(),
@@ -117,6 +138,9 @@ impl BenchmarkInput {
             keep: None,
             skip_internals: true,
             breakdown: false,
+            // ...
+            write_results_to: None,
+            write_to_stdout: true,
         };
 
         let mut left_over: Option<String> = None;
@@ -161,42 +185,55 @@ impl BenchmarkInput {
                 "--keep" => {
                     this.keep = args.next();
                 }
+                "--write-results-to" => {
+                    this.write_results_to = args.next();
+                }
                 "--all" => {
                     this.skip_internals = false;
                 }
                 "--breakdown" => {
                     this.breakdown = true;
                 }
+                "--quiet" => {
+                    this.write_to_stdout = false;
+                }
                 "--arg" => {
+                    // `--arg name=6,7`
                     let next = args.next().unwrap();
                     let (name, values) = next.split_once('=').unwrap();
-                    this.generic_arguments.insert(
-                        name.to_owned(),
-                        values.split(',').map(str::to_owned).collect(),
-                    );
+                    // TODO CSV parse?
+                    let values = values.trim().split(',').map(str::to_owned).collect();
+                    this.generic_arguments.insert(name.to_owned(), values);
                 }
-                // WIP
+                // -- *program* *arg1* *arg2* ...
+                "--" => {
+                    let arg = args.next().unwrap();
+                    this.program = OsString::from(arg);
+                    break;
+                }
+                // WIP. First unknown argument is the program
                 _command => {
-                    this.program = arg;
+                    this.program = OsString::from(arg);
                     break;
                 }
             }
         }
 
-        this.arguments = args.collect();
+        this.arguments = args.map(OsString::from).collect();
 
         this
     }
 }
 
 pub fn print_results(
+    to: &mut impl Write,
     mut rows: Vec<Entry>,
     total_count: usize,
     output_format: OutputFormat,
     sorting: Option<utilities::Sorting>,
     limit: usize,
     breakdown: bool,
-) {
+) -> std::io::Result<()> {
     use std::borrow::Cow;
     use utilities::count_with_seperator;
 
@@ -218,7 +255,7 @@ pub fn print_results(
                 rows.sort_unstable_by(|lhs, rhs| sort.direction.compare(&lhs.total, &rhs.total));
             }
             field => {
-                eprintln!("unknown field {field:?}");
+                writeln!(to, "error: unknown field {field:?}")?;
             }
         }
     }
@@ -256,10 +293,11 @@ pub fn print_results(
             //     println!();
             // }
 
-            println!(
+            writeln!(
+                to,
                 "Run {total} instructions",
                 total = count_with_seperator(total_count as usize)
-            );
+            )?;
             for row in rows {
                 let symbol_name: Cow<'_, str> = if row.symbol_name.len() > MAX_WIDTH {
                     Cow::Owned(format!(
@@ -272,21 +310,25 @@ pub fn print_results(
                 let fill = &WHITESPACE[..max_name_width - symbol_name.len()];
 
                 // TODO wip
-                print!("{symbol_name}{fill}");
-                print!(
+                write!(to, "{symbol_name}{fill}")?;
+                write!(
+                    to,
                     " total:  {count}",
                     count = count_with_seperator(row.total as usize)
-                );
+                )?;
                 if breakdown {
                     for (name, count) in &row.entries {
-                        print!(
+                        write!(
+                            to,
                             " {name}:  {count}",
                             count = count_with_seperator(*count as usize)
-                        );
+                        )?;
                     }
                 }
-                println!();
+                writeln!(to)?;
             }
+
+            Ok(())
         }
         OutputFormat::JSON => {
             let mut buf = String::from("[");
@@ -308,7 +350,7 @@ pub fn print_results(
                 }
             }
             buf.push(']');
-            println!("{buf}");
+            write!(to, "{buf}")
         }
         format => {
             todo!("output format '{format:?}'");
