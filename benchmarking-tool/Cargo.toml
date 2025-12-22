@@ -4,12 +4,9 @@ version = "0.0.0"
 edition = "2024"
 publish = false
 
-[lib]
-path = "lib.rs"
-
 [[bin]]
 name = "benchmark"
-path = "main.rs"
+path = "src/main.rs"
 
 [dependencies]
 json-builder-macro = "0.0.3"
