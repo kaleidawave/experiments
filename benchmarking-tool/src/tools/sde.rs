@@ -13,10 +13,8 @@ pub fn run_sde(
     let blocks = 50;
 
     {
-        let sde_path = std::env::var("SDE_PATH");
+        let sde_path = std::env::var("SDE_PATH").map(|dir| format!("{dir}/sde"));
         let sde_path = sde_path.as_deref().unwrap_or("sde");
-
-        dbg!(&sde_path);
 
         let mut command = Command::new(sde_path);
         command.args([

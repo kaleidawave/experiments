@@ -7,7 +7,9 @@ fn get_iterations() -> usize {
 }
 
 fn main() {
-    run(get_iterations());
+    eprintln!("running!!!");
+    let iterations = get_iterations();
+    run(iterations);
 }
 
 fn run(n: usize) {

@@ -70,7 +70,7 @@ pub fn run_qbdi(
                 return Err(());
             }
             command.env("LD_BIND_NOW", "1");
-            command.env("LD_PRELOAD", library.display().to_string());
+            command.env("LD_PRELOAD", dbg!(library.display().to_string()));
         }
 
         command.args(request.arguments);

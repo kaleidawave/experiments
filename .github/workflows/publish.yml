@@ -46,7 +46,7 @@ jobs:
       if: ${{ matrix.os == 'windows-latest' }}
       run: |
         curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-windows-X86_64.exe -L > QBDI.exe
-        ./QBDI.exe
+        runas /user:Administrator "./QBDI.exe"
         ls 'C:\Program Files'
         
     - name: Build binary, example and QBDI
@@ -70,10 +70,10 @@ jobs:
       if: ${{ matrix.os == 'ubuntu-latest' }}
       working-directory: benchmarking-tool
       run: |
-        getcap ${{ matrix.dynamic-library }}
-        ls -l .
         chmod +x ${{ matrix.dynamic-library }}
         LD_BIND_NOW=1 LD_PRELOAD="$(realpath ${{ matrix.dynamic-library }})" ./iterations 10
+        echo "---"
+        sudo LD_BIND_NOW=1 LD_PRELOAD="$(realpath ${{ matrix.dynamic-library }})" ./iterations 10
 
     - name: Run QBDI iterations
       working-directory: benchmarking-tool
@@ -98,9 +98,7 @@ jobs:
       if: ${{ matrix.os == 'ubuntu-latest'}}
       run: |
         # echo "$SDE_PATH" >> $GITHUB_PATH
-        file "$SDE_PATH"
-        . "$SDE_PATH" --help
-        chmod +x "$SDE_PATH"
+        ls "$SDE_PATH" -r
 
     - name: Run SDE (linux or windows)
       if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
