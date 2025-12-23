@@ -13,51 +13,60 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         include:
         - os: ubuntu-latest
-          dynamic-library: libqbdi_tracer.so
+          # dynamic-library: libqbdi_tracer.so
         - os: macos-latest
           dynamic-library: libqbdi_tracer.dylib
         - os: windows-latest
-          dynamic-library: libqbdi_tracer.dll
+          # dynamic-library: libqbdi_tracer.dll
           executable-extension: '.exe'
 
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
-    - uses: jwlawson/actions-setup-cmake@v2
-      with: { cmake-version: '3.31.7' }
-    
+
     - name: Check
       run: cargo check
       working-directory: benchmarking-tool
 
-    - name: Get QBDI (linux)
-      if: ${{ matrix.os == 'ubuntu-latest' }}
-      run: |
-        curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-ubuntu24.04-X86_64.deb -L > QBDI.deb
-        sudo dpkg -i QBDI.deb
+    - uses: jwlawson/actions-setup-cmake@v2
+      if: ${{ matrix.os == 'macos-latest' }}
+      with: { cmake-version: '3.31.7' }
     
-    - name: Get QBDI (macos)
+    - name: Setup SDE binaries (linux or windows)
+      if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
+      uses: petarpetrovt/setup-sde@v3.0
+      with:
+        environmentVariableName: SDE_PATH # default value is `SDE_PATH`
+        sdeVersion: 9.58.0 # possible values: 9.58.0 (default), 9.33.0
+
+    # - name: Get QBDI (linux)
+    #   if: ${{ matrix.os == 'ubuntu-latest' }}
+    #   run: |
+    #     curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-ubuntu24.04-X86_64.deb -L > QBDI.deb
+    #     sudo dpkg -i QBDI.deb
+    
+    - name: Get and build QBDI (macos)
       if: ${{ matrix.os == 'macos-latest' }}
       run: |
         curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-osx-AARCH64.pkg -L > QBDI.pkg
         sudo installer -pkg QBDI.pkg -target ~
+
+        bash build-qbdi.sh
+        mv 'qbdi/build/${{ matrix.dynamic-library }}' .
     
-    - name: Get QBDI (windows)
-      if: ${{ matrix.os == 'windows-latest' }}
-      run: |
-        curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-windows-X86_64.exe -L > QBDI.exe
-        runas /user:Administrator "./QBDI.exe"
-        ls 'C:\Program Files'
+    # - name: Get QBDI (windows)
+    #   if: ${{ matrix.os == 'windows-latest' }}
+    #   run: |
+    #     curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-windows-X86_64.exe -L > QBDI.exe
+    #     runas /user:Administrator "./QBDI.exe"
+    #     ls 'C:\Program Files'
         
-    - name: Build binary, example and QBDI
+    - name: Build example binary
       working-directory: benchmarking-tool
       shell: bash
       run: |
         cargo build
         mv target/debug/benchmark .
-        
-        bash build-qbdi.sh
-        mv 'qbdi/build/${{ matrix.dynamic-library }}' .
 
     - name: Build iterations
       working-directory: benchmarking-tool
@@ -66,17 +75,18 @@ jobs:
         cargo build --example iterations
         mv target/debug/examples/iterations${{ matrix.executable-extension }} .
 
-    - name: Investigate QBDI (linux)
-      if: ${{ matrix.os == 'ubuntu-latest' }}
-      working-directory: benchmarking-tool
-      run: |
-        chmod +x ${{ matrix.dynamic-library }}
-        LD_BIND_NOW=1 LD_PRELOAD="$(realpath ${{ matrix.dynamic-library }})" ./iterations 10
-        echo "---"
-        sudo LD_BIND_NOW=1 LD_PRELOAD="$(realpath ${{ matrix.dynamic-library }})" ./iterations 10
+    # - name: Investigate QBDI (linux)
+    #   if: ${{ matrix.os == 'ubuntu-latest' }}
+    #   working-directory: benchmarking-tool
+    #   run: |
+    #     chmod +x ${{ matrix.dynamic-library }}
+    #     LD_BIND_NOW=1 LD_PRELOAD="$(realpath ${{ matrix.dynamic-library }})" ./iterations 10
+    #     echo "---"
+    #     sudo LD_BIND_NOW=1 LD_PRELOAD="$(realpath ${{ matrix.dynamic-library }})" ./iterations 10
 
     - name: Run QBDI iterations
       working-directory: benchmarking-tool
+      if: ${{ matrix.os == 'macos-latest' }}
       shell: bash
       run: |
         for i in {0..3}
@@ -86,19 +96,6 @@ jobs:
           sudo ./benchmark${{ matrix.executable-extension }} qbdi --sort name ./iterations${{ matrix.executable-extension }} $i
           echo "::endgroup::"
         done
-
-    - name: Setup SDE binaries
-      if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
-      uses: petarpetrovt/setup-sde@v3.0
-      with:
-        environmentVariableName: SDE_PATH # default value is `SDE_PATH`
-        sdeVersion: 9.58.0 # possible values: 9.58.0 (default), 9.33.0
-
-    - name: sde-path-to-github-path
-      if: ${{ matrix.os == 'ubuntu-latest'}}
-      run: |
-        # echo "$SDE_PATH" >> $GITHUB_PATH
-        ls "$SDE_PATH" -r
 
     - name: Run SDE (linux or windows)
       if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest' }}
@@ -127,10 +124,10 @@ jobs:
         - os: windows-latest
           platform-name: x86_64-pc-windows
           executable-extension: ".exe"
-          dynamic-library: libqbdi_tracer.dll
+          # dynamic-library: libqbdi_tracer.dll
         - os: ubuntu-latest
           platform-name: x86_64-unknown-linux
-          dynamic-library: libqbdi_tracer.so
+          # dynamic-library: libqbdi_tracer.so
         - os: macos-latest
           platform-name: aarch64-apple-darwin
           dynamic-library: libqbdi_tracer.dylib
@@ -154,23 +151,27 @@ jobs:
         run: cargo check
         working-directory: benchmarking-tool
 
-      - name: Get QBDI (linux)
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        run: |
-          curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-ubuntu24.04-X86_64.deb -L > QBDI.deb
-          sudo dpkg -i QBDI.deb
+      # - name: Get QBDI (linux)
+      #   if: ${{ matrix.os == 'ubuntu-latest' }}
+      #   run: |
+      #     curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-ubuntu24.04-X86_64.deb -L > QBDI.deb
+      #     sudo dpkg -i QBDI.deb
       
       - name: Get QBDI (macos)
         if: ${{ matrix.os == 'macos-latest' }}
         run: |
           curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-osx-AARCH64.pkg -L > QBDI.pkg
           sudo installer -pkg QBDI.pkg -target ~
+          
+          bash build-qbdi.sh
+          mv 'qbdi/build/${{ matrix.dynamic-library }}' .
+          gh release upload $GH_RELEASE "${{ matrix.dynamic-library }}" --clobber
       
-      - name: Get QBDI (windows)
-        if: ${{ matrix.os == 'windows-latest' }}
-        run: |
-          curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-windows-X86_64.exe -L > QBDI.exe
-          ./QBDI.exe
+      # - name: Get QBDI (windows)
+      #   if: ${{ matrix.os == 'windows-latest' }}
+      #   run: |
+      #     curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-windows-X86_64.exe -L > QBDI.exe
+      #     ./QBDI.exe
 
       # end build dependents
 
@@ -183,17 +184,13 @@ jobs:
         shell: bash
         env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
         run: |
-          bash build-qbdi.sh
-          mv 'qbdi/build/${{ matrix.dynamic-library }}' .
-
           FROM='${{ env.OUT }}/benchmarking-tool${{ matrix.executable-extension }}'
           TO='benchmark-${{ matrix.platform-name }}${{ matrix.executable-extension }}'
           mv $FROM $TO
           gh release upload $GH_RELEASE "$TO" --clobber
-          gh release upload $GH_RELEASE "${{ matrix.dynamic-library }}" --clobber
 
-      - name: Copy QBDIPreload (windows)
-        if: ${{ matrix.os == 'windows-latest' }}
-        run: |
-          mv "$(which qbdi-template-X86_64)/../QBDIWinPreloader.exe" .
-          gh release upload $GH_RELEASE QBDIWinPreloader.exe --clobber
+      # - name: Copy QBDIPreload (windows)
+      #   if: ${{ matrix.os == 'windows-latest' }}
+      #   run: |
+      #     mv "$(which qbdi-template-X86_64)/../QBDIWinPreloader.exe" .
+      #     gh release upload $GH_RELEASE QBDIWinPreloader.exe --clobber
