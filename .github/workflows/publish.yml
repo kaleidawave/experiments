@@ -46,6 +46,7 @@ jobs:
     #     sudo dpkg -i QBDI.deb
     
     - name: Get and build QBDI (macos)
+      working-directory: benchmarking-tool
       if: ${{ matrix.os == 'macos-latest' }}
       run: |
         curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-osx-AARCH64.pkg -L > QBDI.pkg
@@ -159,6 +160,7 @@ jobs:
       
       - name: Get QBDI (macos)
         if: ${{ matrix.os == 'macos-latest' }}
+        working-directory: benchmarking-tool
         run: |
           curl https://github.com/QBDI/QBDI/releases/download/v0.12.0/QBDI-0.12.0-osx-AARCH64.pkg -L > QBDI.pkg
           sudo installer -pkg QBDI.pkg -target ~
