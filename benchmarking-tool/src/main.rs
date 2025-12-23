@@ -95,6 +95,7 @@ pub enum OutputFormat {
     #[default]
     Plain,
     JSON,
+    CSV,
     Markdown,
 }
 
@@ -309,7 +310,6 @@ pub fn print_results(
                 };
                 let fill = &WHITESPACE[..max_name_width - symbol_name.len()];
 
-                // TODO wip
                 write!(to, "{symbol_name}{fill}")?;
                 write!(
                     to,
@@ -352,8 +352,46 @@ pub fn print_results(
             buf.push(']');
             write!(to, "{buf}")
         }
-        format => {
-            todo!("output format '{format:?}'");
+        OutputFormat::CSV => {
+            writeln!(to, "symbol name,count")?;
+            for row in rows {
+                let Entry {
+                    symbol_name, total, ..
+                } = row;
+                writeln!(to, "\"{symbol_name}\",{total}")?;
+                // TODO ..?
+                // if breakdown {
+                //     for (name, count) in &row.entries {
+                //         write!(
+                //             to,
+                //             ",\"{name}\",{count}",
+                //             count = *count as usize
+                //         )?;
+                //     }
+                // }
+            }
+            Ok(())
+        }
+        OutputFormat::Markdown => {
+            writeln!(to, "|symbol name|count|")?;
+            writeln!(to, "|---|---|")?;
+            for row in rows {
+                let Entry {
+                    symbol_name, total, ..
+                } = row;
+                writeln!(to, "|`{symbol_name}`|{total}|")?;
+                // TODO ..?
+                // if breakdown {
+                //     for (name, count) in &row.entries {
+                //         write!(
+                //             to,
+                //             ",\"{name}\",{count}",
+                //             count = *count as usize
+                //         )?;
+                //     }
+                // }
+            }
+            Ok(())
         }
     }
 }
