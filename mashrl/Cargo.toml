@@ -1,0 +1,22 @@
+[package]
+name = "mashrl"
+version = "0.0.6"
+authors = ["Ben <kaleidawave@gmail.com>"]
+edition = "2024"
+description = "Minimal and simple HTTP(s) request library (with server)"
+license = "MIT"
+categories = ["network-programming"]
+keywords = ["http", "request", "server"]
+repository = "https://github.com/kaleidawave/experiments"
+
+[lib]
+path = "lib.rs"
+
+[features]
+decompress = ["dep:flate2"]
+server = []
+extras = []
+
+[dependencies]
+flate2 = { version = "1.1.2", optional = true }
+native-tls = "0.2.14"
