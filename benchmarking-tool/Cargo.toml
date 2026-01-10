@@ -5,12 +5,14 @@ edition = "2024"
 publish = false
 
 [[bin]]
-name = "benchmark"
+name = "benchmarking-tool"
 path = "src/main.rs"
 
 [dependencies]
 json-builder-macro = "0.0.3"
 rustc-demangle = "0.1.26"
+
+# TODO only on x86 ?
 sde-output-parser = { path = "sde-output-parser", version = "*" } 
 
 # [target.unix.dependencies]

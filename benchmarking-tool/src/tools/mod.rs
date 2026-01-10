@@ -1,5 +1,8 @@
-pub mod qbdi;
 pub mod wall_clock;
+
+// Can only get working for macos for now
+// #[cfg(target_os = "macos")]
+pub mod qbdi;
 
 #[cfg(target_family = "unix")]
 pub mod perf_events;

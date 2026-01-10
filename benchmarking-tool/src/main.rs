@@ -23,6 +23,10 @@ fn main() {
         }),
     );
 
+    if input.limit != usize::MAX && input.sort.is_none() {
+        panic!("--limit requires --sort");
+    }
+
     match tool {
         "--info" | "help" => {
             println!("benchmarking-tool");
@@ -127,7 +131,7 @@ pub struct BenchmarkInput {
 impl BenchmarkInput {
     pub fn from_arguments(mut args: impl Iterator<Item = String>) -> Self {
         let mut this = Self {
-            limit: 25,
+            limit: usize::MAX,
             sort: None,
             format: OutputFormat::default(),
             // ...
