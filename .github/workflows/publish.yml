@@ -67,7 +67,7 @@ jobs:
       shell: bash
       run: |
         cargo build
-        mv target/debug/benchmark .
+        mv target/debug/benchmarking-tool .
 
     - name: Build iterations
       working-directory: benchmarking-tool
@@ -93,8 +93,8 @@ jobs:
         for i in {0..3}
         do
           i=$((10**i))
-          echo "::group::benchmark${{ matrix.executable-extension }} qbdi ./iterations${{ matrix.executable-extension }} $i"
-          sudo ./benchmark${{ matrix.executable-extension }} qbdi --sort name ./iterations${{ matrix.executable-extension }} $i
+          echo "::group::./benchmarking-tool${{ matrix.executable-extension }} qbdi ./iterations${{ matrix.executable-extension }} $i"
+          sudo ./benchmarking-tool${{ matrix.executable-extension }} qbdi --sort name ./iterations${{ matrix.executable-extension }} $i
           echo "::endgroup::"
         done
 
@@ -107,8 +107,8 @@ jobs:
         do
           i=$((10**i))
 
-          echo "::group::benchmark${{ matrix.executable-extension }} sde ./iterations${{ matrix.executable-extension }} $i"
-          ./benchmark${{ matrix.executable-extension }} sde --sort name ./iterations${{ matrix.executable-extension }} $i
+          echo "::group::./benchmarking-tool${{ matrix.executable-extension }} sde ./iterations${{ matrix.executable-extension }} $i"
+          ./benchmarking-tool${{ matrix.executable-extension }} sde --sort name ./iterations${{ matrix.executable-extension }} $i
           echo "::endgroup::"
         done
 
@@ -187,7 +187,7 @@ jobs:
         env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
         run: |
           FROM='${{ env.OUT }}/benchmarking-tool${{ matrix.executable-extension }}'
-          TO='benchmark-${{ matrix.platform-name }}${{ matrix.executable-extension }}'
+          TO='benchmarking-tool-${{ matrix.platform-name }}${{ matrix.executable-extension }}'
           mv $FROM $TO
           gh release upload $GH_RELEASE "$TO" --clobber
 
