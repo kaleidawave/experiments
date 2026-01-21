@@ -1,0 +1,15 @@
+[package]
+name = "current-issues"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "current-issues"
+path = "main.rs"
+
+[dependencies]
+codespan-reporting = "0.13.1"
+glob = "0.3.3"
+json-builder-macro = "0.0.3"
+simple-markdown-parser = { git = "https://github.com/kaleidawave/simple-markdown-parser", branch = "improvements", version = "0.0.7" }
