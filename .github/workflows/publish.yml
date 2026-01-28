@@ -1,0 +1,26 @@
+name: Test library
+
+on:
+  push
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    strategy: { matrix: { project: [early-return-struct] } }
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+
+    - name: Check
+      run: cargo +nightly check
+      working-directory: ${{ matrix.project }}
+
+    - name: Test
+      run: cargo +nightly test
+      working-directory: ${{ matrix.project }}
+
+    - name: Lint
+      run: cargo +nightly clippy
+      working-directory: ${{ matrix.project }}
