@@ -1,4 +1,4 @@
-use lines_of_code::{RustSection, measure};
+use lines_of_code::{Kind, RustSection, measure_package};
 use std::io::{BufRead, BufReader};
 
 fn main() {
@@ -23,15 +23,27 @@ fn main() {
         argument => {
             let mut pattern = argument;
 
-            let mut count = RustSection::default();
-            let mut trace = false;
+            let mut count = RustSection {
+                kind_and_name: (Kind::Package, String::new()),
+                statistics: lines_of_code::RustStatistics::default(),
+                nested: Vec::new(),
+            };
 
-            // WIP
+            // Logs files that are walked
+            let mut trace = false;
+            // let mut count_function_sizes = false;
+
             for argument in arguments {
-                if let "--trace" = argument.as_str() {
-                    trace = true;
-                } else {
-                    eprintln!("unknown argument {argument:?}");
+                match argument.as_str() {
+                    "--trace" => {
+                        trace = true;
+                    }
+                    // "--count-function-sizes" => {
+                    //     count_function_sizes = true;
+                    // }
+                    argument => {
+                        eprintln!("unknown argument {argument:?}");
+                    }
                 }
             }
 
@@ -52,16 +64,22 @@ fn main() {
                     path
                 };
 
-                if let Ok(cargo_toml) =
-                    std::fs::File::open(std::path::Path::new(path).join("Cargo.toml"))
                 {
-                    for line in BufReader::new(cargo_toml).lines().map_while(Result::ok) {
-                        if let Some(item) = line.strip_prefix("name") {
-                            let (_, item) = item.split_once('"').unwrap();
-                            let (item, _) = item.rsplit_once('"').unwrap();
-                            count.package_name = item.to_owned();
-                            break;
+                    use std::fs::File;
+                    use std::path::Path;
+
+                    let cargo_toml_path = Path::new(path).join("Cargo.toml");
+                    if let Ok(cargo_toml) = File::open(cargo_toml_path) {
+                        for line in BufReader::new(cargo_toml).lines().map_while(Result::ok) {
+                            if let Some(item) = line.strip_prefix("name") {
+                                let (_, item) = item.split_once('"').unwrap();
+                                let (item, _) = item.rsplit_once('"').unwrap();
+                                item.clone_into(&mut count.kind_and_name.1);
+                                break;
+                            }
                         }
+                    } else {
+                        eprintln!("No Cargo.toml?");
                     }
                 }
             }
@@ -72,25 +90,30 @@ fn main() {
                 .filter(|path| path.is_file());
 
             for path in files {
-                if trace {
-                    eprintln!("Reading {path:?}");
-                }
-                count.modules += 1;
+                use std::fs::File;
 
-                let content = std::fs::File::open(&path).unwrap();
-                let inner_count = measure(BufReader::new(content));
+                if trace {
+                    eprintln!("Reading {path}", path = path.display());
+                }
+                count.statistics.modules += 1;
+
+                let content = File::open(&path).unwrap();
+                let mut inner_count = measure_package(BufReader::new(content));
 
                 let path_str = path.as_os_str().to_str();
                 if path_str.is_some_and(|path| path.contains("examples")) {
-                    count.example_lines += inner_count.lines;
+                    count.statistics.example_lines += inner_count.statistics.lines;
                 } else if path_str.is_some_and(|path| path.contains("tests")) {
-                    count.test_lines += inner_count.lines;
+                    count.statistics.test_lines += inner_count.statistics.lines;
                 } else {
-                    count += inner_count;
+                    count.statistics += inner_count.statistics;
                 }
+
+                count.nested.append(&mut inner_count.nested);
             }
 
-            println!("{json}", json = count.to_json());
+            let json = json_builder_macro::ToJSON::as_json_string(&count);
+            println!("{json}");
         }
     }
 }
@@ -111,7 +134,9 @@ fn run_interactive() {
         }
 
         if line == "end" {
-            measure(BufReader::new(buf.as_slice())).debug();
+            measure_package(BufReader::new(buf.as_slice()))
+                .statistics
+                .debug();
 
             println!("end");
             buf.clear();

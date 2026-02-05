@@ -13,6 +13,15 @@ TODO
 - lines that are just `}`
 - largest indent?
 
+Lines
+
+- all
+- non-whitespace
+- non-whitespace and `}` etc
+- non-whitespace, comments and `}` etc
+
+others: derive macros, doc-comments
+
 ## Tests
 
 ### Basic
@@ -28,6 +37,7 @@ let y = 3;
 ```
 lines: 2
 variables: 2
+whitespace: 1
 ```
 
 ### Functions, enums, type aliases, impls and modules
@@ -63,6 +73,8 @@ structs: 1
 type_aliases: 1
 fns: 3
 impls: 2
+delimeters: 4
+whitespace: 5
 ```
 
 ### Above public
@@ -110,8 +122,6 @@ comments: 1
 
 ### Tests
 
-> TODO what about if `all(...)` etc?
-
 ```rust
 fn x() -> u64 {
 	4
@@ -130,4 +140,6 @@ mod test {
 lines: 3
 test_lines: 4
 fns: 1
+delimeters: 3
+whitespace: 1
 ```

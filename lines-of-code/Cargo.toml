@@ -20,4 +20,8 @@ test = "spectra check README.md 'target/debug/lines-of-code --rpc --interactive'
 
 [dependencies]
 glob = "0.3.3"
-json-builder-macro = "0.0.1"
+json-builder-macro = "=0.0.3"
+
+derive_more.version = "2.1.1"
+derive_more.default-features = false
+derive_more.features = ["add", "add_assign"]
