@@ -1,5 +1,5 @@
-use rust_type_sizes::{FieldOrPadding, Item, Kind, item_from_input};
-use std::env;
+use rust_type_sizes::{Field, FieldOrPadding, Item, Kind, Skip, item_from_input};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 static SKIPPED_PREFIX: &[&str] = &[
@@ -22,25 +22,64 @@ static SKIPPED_PREFIX: &[&str] = &[
     // "Win32"
 ];
 
-static SKIPPED_CONTAINS: &[&str] = &["syn", "WithComment", "Decorated"];
+static SKIPPED_CONTAINS: &[&str] = &["syn"];
 
-fn skip(name: &str, size: usize) -> bool {
-    SKIPPED_PREFIX.iter().any(|prefix| name.starts_with(prefix))
-        || SKIPPED_CONTAINS.iter().any(|slice| name.contains(slice))
-        || size < 32
+// TODO more
+#[derive(Debug, Clone, Copy)]
+struct Skipper {
+    pub size_threshold: usize,
+}
+
+impl Skip for Skipper {
+    fn should_skip(&self, name: &str, size: usize) -> bool {
+        SKIPPED_PREFIX.iter().any(|prefix| name.starts_with(prefix))
+            || SKIPPED_CONTAINS.iter().any(|slice| name.contains(slice))
+            || size < self.size_threshold
+    }
 }
 
 fn main() {
-    // TODO find
-    let path = env::args().nth(1).and_then(|arg| {
-        let path = std::path::PathBuf::from(arg);
-        path.is_file().then_some(path)
-    });
+    let mut file: Option<PathBuf> = None;
+    let mut example: Option<String> = None;
+    let mut to_tables: bool = false;
+    let mut log: Option<PathBuf> = None;
 
-    let to_tables = env::args().any(|arg| arg == "--to-tables");
+    let mut skipper = Skipper { size_threshold: 0 };
 
-    let out: String = if let Some(path) = path {
-        std::fs::read_to_string(path).unwrap()
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--from-file" => {
+                let path = args.next().expect("expected path to file");
+                file = Some(PathBuf::from(path));
+            }
+            "--example" => {
+                let example_ = args.next().expect("expected example name");
+                example = Some(example_);
+            }
+            "--threshold" => {
+                let size = args.next().expect("expected threshold size");
+                skipper.size_threshold = size.parse().unwrap();
+            }
+            "--to-tables" => {
+                to_tables = true;
+            }
+            "--help" => {
+                println!("rust-type-sizes");
+                println!("TODO explanation etc");
+            }
+            "--log-file" => {
+                let path = args.next().expect("expected path to file");
+                log = Some(PathBuf::from(path));
+            }
+            arg => {
+                panic!("unknown {arg:?}");
+            }
+        }
+    }
+
+    let out: String = if let Some(file) = file {
+        std::fs::read_to_string(file).unwrap()
     } else {
         // we only get type size output if the build is *fresh*. To do this we *dirty* the project by changing
         // the last update time of a file
@@ -56,13 +95,9 @@ fn main() {
         }
 
         let mut cargo_args = vec!["build".to_owned()];
-        let mut log = false;
-        for arg in env::args().skip(1) {
-            if let "--log-type-sizes" = arg.as_str() {
-                log = true;
-            } else {
-                cargo_args.push(arg);
-            }
+        if let Some(example) = example {
+            cargo_args.push("--example".into());
+            cargo_args.push(example);
         }
 
         eprintln!("Running 'cargo' with {cargo_args:?}");
@@ -79,8 +114,8 @@ fn main() {
 
         let out = String::from_utf8(output.stdout).expect("invalid utf8");
 
-        if log {
-            let _ = std::fs::write("out.txt", &out);
+        if let Some(log) = log {
+            let _ = std::fs::write(log, &out);
         }
 
         if out.is_empty() {
@@ -98,7 +133,7 @@ fn main() {
 
     for (idx, _matched) in out.match_indices(delimeter).skip(1) {
         let out = &out[last..idx];
-        if let Some(item) = item_from_input(out, skip) {
+        if let Some(item) = item_from_input(out, &skipper) {
             items.push(item);
         }
         last = idx;
@@ -106,7 +141,7 @@ fn main() {
 
     let out = &out[last..];
 
-    if let Some(item) = item_from_input(out, skip) {
+    if let Some(item) = item_from_input(out, &skipper) {
         items.push(item);
     }
 
@@ -127,7 +162,7 @@ fn debug_item(item: &Item) {
         "struct"
     }; // Or other
     println!(
-        "{name}={size} ({kind})",
+        "{name} = {size} ({kind})",
         name = &item.total.name,
         size = item.total.size
     );
@@ -136,13 +171,13 @@ fn debug_item(item: &Item) {
             discriminant: _,
             variants,
         } => {
-            let big = variants.len() > 2;
+            // let big = variants.len() > 2;
             for variant in variants {
-                if big {
-                    print!("\t");
-                }
+                // if big {
+                print!("\t");
+                // }
                 print!(
-                    "{name}={size}",
+                    "{name} = {size}",
                     name = &variant.total.name,
                     size = variant.total.size
                 );
@@ -150,24 +185,26 @@ fn debug_item(item: &Item) {
                 for field in &variant.fields {
                     match field {
                         FieldOrPadding::Field(field) => {
-                            print!(".{name}={size},", name = &field.name, size = field.size);
+                            print!(".{name} = {size},", name = &field.name, size = field.size);
                         }
                         FieldOrPadding::Padding(_) => {}
                     }
                 }
                 print!("),");
-                if big {
-                    println!()
-                }
+                // if big {
+                //     println!()
+                // }
             }
         }
         Kind::StructItem { fields } => {
             for field in fields {
                 match field {
-                    FieldOrPadding::Field(field) => {
-                        print!(".{name}={size},", name = &field.name, size = field.size);
+                    FieldOrPadding::Field(Field { name, size, .. }) => {
+                        print!(" .{name} = {size},");
                     }
-                    FieldOrPadding::Padding(_) => {}
+                    FieldOrPadding::Padding(size) => {
+                        print!(" (padding {size}),");
+                    }
                 }
             }
         }
@@ -220,19 +257,16 @@ fn print_to_tables(items: &[Item]) {
                 for variant in variants {
                     for field in &variant.fields {
                         match field {
-                            FieldOrPadding::Field(field) => {
-                                let e = if field.name.starts_with(|chr: char| chr.is_ascii_digit())
-                                {
+                            FieldOrPadding::Field(Field { name, size, .. }) => {
+                                let e = if name.starts_with(|chr: char| chr.is_ascii_digit()) {
                                     "\""
                                 } else {
                                     ""
                                 };
                                 println!(
-                                    "{d}{name}{d},{variant_name},{e}{field_name}{e},{size},",
+                                    "{d}{name}{d},{variant_name},{e}{name}{e},{size},",
                                     name = &item.total.name,
-                                    variant_name = &variant.total.name,
-                                    field_name = &field.name,
-                                    size = field.size
+                                    variant_name = &variant.total.name
                                 );
                             }
                             FieldOrPadding::Padding(_) => {}
@@ -243,12 +277,10 @@ fn print_to_tables(items: &[Item]) {
             Kind::StructItem { fields } => {
                 for field in fields {
                     match field {
-                        FieldOrPadding::Field(field) => {
+                        FieldOrPadding::Field(Field { name, size, .. }) => {
                             println!(
-                                "{d}{name}{d},null,{field_name},{size},",
-                                name = &item.total.name,
-                                field_name = &field.name,
-                                size = field.size
+                                "{d}{total_name}{d},null,{name},{size},",
+                                total_name = &item.total.name,
                             );
                         }
                         FieldOrPadding::Padding(_) => {}

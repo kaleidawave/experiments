@@ -85,13 +85,12 @@ jobs:
       - name: Publish binary
         working-directory: ${{ steps.information.outputs.WORKING_DIRECTORY }}
         shell: bash
-        env: { "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}" }
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
         run: |
           FROM='${{ steps.information.outputs.ASSET_PATH }}'
           TO='${{ steps.information.outputs.ASSET_NAME }}-${{ matrix.platform-name }}${{ matrix.executable-extension }}'
-          LABEL="${{ steps.information.outputs.PROJECT_NAME }}-$TO"
           mv $FROM $TO
-          gh release upload $GH_RELEASE "$TO#LABEL" --clobber
+          gh release upload "$GH_RELEASE" "$TO" --clobber
 
   publish-crates:
     needs: check

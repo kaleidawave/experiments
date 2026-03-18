@@ -34,7 +34,19 @@ pub enum Kind {
     },
 }
 
-pub fn item_from_input(out: &str, skip: impl Fn(&str, usize) -> bool) -> Option<Item> {
+pub trait Skip {
+    fn should_skip(&self, name: &str, size: usize) -> bool;
+}
+
+pub struct NoSkip;
+
+impl Skip for NoSkip {
+    fn should_skip(&self, _name: &str, _size: usize) -> bool {
+        false
+    }
+}
+
+pub fn item_from_input(out: &str, skip: &impl Skip) -> Option<Item> {
     let Some(out) = out.strip_prefix("print-type-size type: `") else {
         panic!("did not start with 'print-type-size type: `'");
     };
@@ -54,7 +66,7 @@ pub fn item_from_input(out: &str, skip: impl Fn(&str, usize) -> bool) -> Option<
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
 
-    if skip(name, size) {
+    if skip.should_skip(name, size) {
         return None;
     }
 
@@ -182,15 +194,15 @@ pub fn item_from_input(out: &str, skip: impl Fn(&str, usize) -> bool) -> Option<
                     let (item, offset) = item.split_once(", offset: ").unwrap_or((item, ""));
                     let (size, alignment) = item.split_once(", alignment: ").unwrap_or((item, ""));
                     let size = parse_byte_literal(size);
-                    let alignment = if !alignment.is_empty() {
+                    let alignment = if alignment.is_empty() {
+                        0
+                    } else {
                         parse_byte_literal(alignment)
-                    } else {
-                        0
                     };
-                    let _offset = if !offset.is_empty() {
-                        parse_byte_literal(offset)
-                    } else {
+                    let _offset = if offset.is_empty() {
                         0
+                    } else {
+                        parse_byte_literal(offset)
                     };
                     let field = Field {
                         name: name.to_owned(),
@@ -216,7 +228,6 @@ pub fn item_from_input(out: &str, skip: impl Fn(&str, usize) -> bool) -> Option<
                         .push(FieldOrPadding::Padding(size));
                 } else {
                     eprintln!("enum todo {line:?}");
-                    continue;
                 }
             }
             if let Some(variant) = variant.take() {
@@ -248,7 +259,7 @@ fn parse_byte_count(on: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{Field, FieldOrPadding, Kind, item_from_input};
+    use super::{Field, FieldOrPadding, Kind, NoSkip, item_from_input};
 
     #[test]
     fn parse() {
@@ -287,7 +298,7 @@ print-type-size     variant `__variant2`: 0 bytes"];
 
         let items: Vec<_> = out
             .iter()
-            .map(|part| item_from_input(part, |_, _| false).unwrap())
+            .map(|part| item_from_input(part, &NoSkip).unwrap())
             .collect();
 
         assert_eq!(&items[0].total.name, "Item<'_, '_>");
