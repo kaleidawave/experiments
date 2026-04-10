@@ -5,6 +5,8 @@ on: push
 
 jobs:
   build-and-upload-binaries:
+    if: false
+
     permissions: write-all
 
     runs-on: ubuntu-latest
