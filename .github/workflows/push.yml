@@ -9,6 +9,12 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        repository: []
+
     env:
       PROFILE: dev
       OUT: target/debug
@@ -17,8 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: taiki-e/cargo-fuzz
-          ref: default-target
+          repository: ${{ matrix.repository.repository }} 
+          ref: ${{ matrix.repository.ref || 'main' }}
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -29,9 +35,8 @@ jobs:
         shell: bash
         env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
         run: |
-          FROM='${{ env.OUT }}/cargo-fuzz'
-          TO='cargo-fuzz-x86_64-unknown-linux'
-          # LABEL="cargo-fuzz-$TO"
+          FROM='${{ env.OUT }}/${{ matrix.repository.name }}'
+          TO='${{ matrix.repository.name }}-x86_64-unknown-linux'
           LABEL="$TO"
           mv $FROM $TO
           gh release upload $GH_RELEASE "$TO#$LABEL" --clobber -R ${{ github.repository }}
@@ -46,15 +51,17 @@ jobs:
       max-parallel: 3
       matrix:
         repository:
-          - url: https://github.com/tree-sitter/tree-sitter-rust
-          - url: https://github.com/tree-sitter/tree-sitter-go
-          - url: https://github.com/tree-sitter/tree-sitter-regex
-          - url: https://github.com/tree-sitter/tree-sitter-typescript
-            path: typescript
-          - url: https://github.com/tree-sitter-grammars/tree-sitter-zig
-          - url: https://github.com/tree-sitter-grammars/tree-sitter-yaml
+          - url: https://github.com/PrestonKnopp/tree-sitter-gdscript
+          # - url: https://github.com/tree-sitter/tree-sitter-rust
+          # - url: https://github.com/tree-sitter/tree-sitter-go
+          # - url: https://github.com/tree-sitter/tree-sitter-regex
+          # - url: https://github.com/tree-sitter/tree-sitter-typescript
+          #   path: typescript
+          # - url: https://github.com/tree-sitter-grammars/tree-sitter-zig
+          # - url: https://github.com/tree-sitter-grammars/tree-sitter-yaml
           - url: https://github.com/tree-sitter-grammars/tree-sitter-markdown
-          - url: https://github.com/DerekStride/tree-sitter-sql
+            path: tree-sitter-markdown
+          # - url: https://github.com/DerekStride/tree-sitter-sql
 
     steps:
       - name: clone, build and publish
