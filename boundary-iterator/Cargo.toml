@@ -1,0 +1,13 @@
+[package]
+name = "boundary-iterator"
+description = "A wrapper for an iterator that *breaks* at a boundary"
+authors = ["Ben <kaleidawave@gmail.com>"]
+version = "0.0.0"
+edition = "2024"
+repository = "https://github.com/kaleidawave/experiments"
+license = "MIT"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
