@@ -65,8 +65,16 @@ jobs:
           # - url: https://github.com/tree-sitter-grammars/tree-sitter-markdown
             # path: tree-sitter-markdown
           # - url: https://github.com/DerekStride/tree-sitter-sql
-          - url: https://github.com/tree-sitter/tree-sitter-python
-          - url: https://github.com/Julian/tree-sitter-lean
+          # - url: https://github.com/tree-sitter/tree-sitter-python
+          # - url: https://github.com/Julian/tree-sitter-lean
+          - url: https://github.com/tree-sitter/tree-sitter-html
+          - url: https://github.com/tree-sitter/tree-sitter-c
+          - url: https://github.com/tree-sitter/tree-sitter-cpp
+          - url: https://github.com/tree-sitter/tree-sitter-bash
+          - url: https://github.com/tree-sitter/tree-sitter-json
+          - url: https://github.com/tree-sitter/tree-sitter-css
+          - url: https://github.com/tree-sitter/tree-sitter-toml
+          - url: https://github.com/tree-sitter/tree-sitter-tsq
 
     steps:
       - name: clone, build and publish
